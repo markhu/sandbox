@@ -3,18 +3,17 @@ sandbox
 
 sandbox is a test
 
-basic steps:
+## basic Git steps:
 
 1. git-clone
-2. edit
+2. edit files
+2. git add  # (optional)
 3. git-commit
 4. git-push
 
-formatting test:
 
-# alt heading indicator
+### basic docker steps:
 
-## two pound signs for h2
-
-### 3 pounds for h3
+1. `docker build -t` repo/name .
+2. `docker run` repo/name <optional_command(s)>
 
