@@ -1,5 +1,5 @@
 FROM centos:6.7
-MAINTAINER "Mark Hudson" <mhudson@rubiconproject.com>
+MAINTAINER "Mark Hudson" <markhu@gmail.com>
 ENV container docker
 
 # commmands inside the Dockerfile run as root (no sudo needed)
@@ -14,8 +14,8 @@ RUN wget http://download.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.no
 
 # this scl (Software Collection) contains gcc 4.9
 RUN yum install -y centos-release-scl && yum-config-manager --enable rhel-server-rhscl-7-rpms
-# RUN yum install -y devtoolset-3
-RUN yum install -y devtoolset-3-gcc devtoolset-3-gcc-c++
+# RUN yum install -y devtoolset-3  # install ALL which is large
+RUN yum install -y 'devtoolset-3-gcc' devtoolset-3-gcc-c++
 RUN ln -s /opt/rh/devtoolset-3/root/usr/bin/c++ /usr/bin/
 RUN ln -s /opt/rh/devtoolset-3/root/usr/bin/* /usr/local/bin/
 RUN mkdir -p                                                        /usr/lib/gcc/
