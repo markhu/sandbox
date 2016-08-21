@@ -1,0 +1,23 @@
+# Dockerfile-python
+# --build EZ: docker build . --tag blah  # tag with a human-readable name
+# --build XTRA: docker build -t a34:python -f Dockerfile-python .
+# --run:  docker run blah [optional command]
+FROM alpine:3.4
+
+ENV container=docker
+
+# RUN command args  # execute as root
+# RUN apk add --no-cache git2u
+RUN apk add --update python
+
+RUN echo -e "#!/bin/bash\n\necho cat /etc/issue" > cat-issue.sh
+RUN chmod a+x cat-issue.sh
+
+# VOLUME [ "/sys/fs/cgroup" ]
+# CMD /sbin/apk info -v
+CMD /sbin/apk info -v
+
+# setting an ENTRYPOINT makes it harder to specify alternative commands
+# ENTRYPOINT ["apk --version"]
+
+# vim: ft=dockerfile
