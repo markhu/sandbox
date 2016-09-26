@@ -1,5 +1,5 @@
 FROM centos:6.7
-MAINTAINER "Mark Hudson" <mhudson@rubiconproject.com>
+MAINTAINER "Mark Hudson" <markhu@gmail.com>
 ENV container docker
 
 RUN yum install -y wget which
