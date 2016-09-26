@@ -5,7 +5,7 @@ ENV container docker
 LABEL org.label-schema.vcs-url="https://github.com/markhu/sandbox/blob/master/docker-cmake/Dockerfile"
 
 RUN yum install -y 'wget' which yum-utils mlocate cmake
-# RUN yum install -y gcc  # CentOS 6 comes with gcc-4.4
+# RUN yum install -y gcc  # CentOS 6 comes with gcc-4.4 --replaced with 4.9 below
 
 # Add a newer GCC and a few libs in order to build Apache modules
 # install RPM(s) from EPEL repo
