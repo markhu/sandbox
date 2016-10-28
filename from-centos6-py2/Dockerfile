@@ -1,11 +1,14 @@
 
-# docker build -t acct/python-2.7 .
-# docker run -i -p 8008:8000 -t python/server
+# docker build -t acct/python2 .
+# docker run -i -p 8008:8000 -t acct/python
 # curl http://localhost:8008/
 
-FROM  centos:6
-# RUN   yum install -y python27
-# RUN   python easy_install pip
+FROM  centos:6.7
+RUN  yum update -y
+RUN  yum install -y python-devel python-setuptools
+RUN  yum install -y mlocate  &&  updatedb
+# RUN  yum install -y python-pip  &&  pip install --upgrade pip
+# RUN   pip install requests
 
 # EXPOSE  80
 
