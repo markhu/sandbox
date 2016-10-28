@@ -4,11 +4,10 @@
 # curl http://localhost:8008/
 
 FROM  centos:6.7
-RUN  yum update -y
-RUN  yum install -y python-devel python-setuptools
+RUN  rpm -ivh http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
+RUN  yum install -y python-pip  # &&  pip install --upgrade pip
+RUN  pip install requests
 RUN  yum install -y mlocate  &&  updatedb
-# RUN  yum install -y python-pip  &&  pip install --upgrade pip
-# RUN   pip install requests
 
 # EXPOSE  80
 
