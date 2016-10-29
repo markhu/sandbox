@@ -4,9 +4,9 @@ For historical reasons, I wanted a Docker image based on CentOS 6...
 Alternate ways to modernize the old CentOS6 YUM repos... 
 
 * http://sharadchhetri.com/2014/05/30/install-pip-centos-rhel-ubuntu-debian/
-    * seems to install fewer files...
+    * installs only 6 RPMs --but you are stuck with old Python 2.6
 * https://github.com/h2oai/h2o-2/wiki/installing-python-2.7-on-centos-6.3.-follow-this-sequence-exactly-for-centos-machine-only
-    * installs 30 RPMs (121 MB)
+    * installs 30 RPMs (121 MB) --but you get Python 2.7
 
 ```
 ~/docker/sandbox/from-centos6-py2 $ docker images | head -n2
