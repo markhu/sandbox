@@ -18,7 +18,7 @@ RUN   date > info.htm && cat /etc/issue >> info.htm && ls -la >> info.htm && pyt
 # CMD /sbin/apk info -v
 CMD python -m SimpleHTTPServer 8000
 
-# setting an ENTRYPOINT makes it harder to specify alternative commands
+# setting an ENTRYPOINT makes it harder to specify alternative commands (cmd-line args appended to entrypoint)
 # ENTRYPOINT ["apk --version"]
 
 # vim: ft=dockerfile
