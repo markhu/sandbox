@@ -11,9 +11,8 @@ ENV container=docker
 RUN apk add --update python
 
 WORKDIR  /var/tmp/  # WORKDIR is equivalent to `cd`
-RUN cat /etc/issue
-RUN date > info.htm && ls -la >> info.htm && python -c 'import sys; print "Python", sys.version' >> info.htm
 COPY  Dockerfile Dockerfile.txt
+RUN   date > info.htm && cat /etc/issue >> info.htm && ls -la >> info.htm && python -c 'import sys; print "Python", sys.version' >> info.htm
 
 # VOLUME [ "/sys/fs/cgroup" ]
 # CMD /sbin/apk info -v
