@@ -3,7 +3,7 @@
 FROM centos:6.7
 
 RUN yum install -y tar wget which
-RUN wget --no-cookies --no-check-certificate --progress=dot -e dotbytes=1M --header \
+RUN wget --no-cookies --no-check-certificate --progress=dot:giga --header \
 	    "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" \
 	        "http://download.oracle.com/otn-pub/java/jdk/8u92-b14/jdk-8u92-linux-x64.rpm"
 RUN rpm -ivh jdk-8u92-linux-x64.rpm
@@ -12,11 +12,10 @@ RUN rm jdk-8u92-linux-x64.rpm
 RUN yum install -y mlocate  && updatedb
 
 RUN curl -O http://apache.osuosl.org/maven/maven-3/3.3.9/binaries/apache-maven-3.3.9-bin.tar.gz
-RUN which tar
 RUN tar -xvf apache-maven-3.3.9-bin.tar.gz  && rm -rf apache-maven-3.3.9-bin.tar.gz
 RUN mv apache-maven-3.3.9 /opt/maven  && ln -s /opt/maven/bin/mvn /usr/bin/mvn
 RUN touch /etc/profile.d/maven.sh
 RUN printf '#!/bin/bash\nMAVEN_HOME=/var/maven\nPATH=$MAVEN_HOME/bin:$PATH\nexport PATH MAVEN_HOME\nexport CLASSPATH=.' > /etc/profile.d/maven.sh
-RUN chmod +x /etc/profile.d/maven.sh
+RUN chmod a+x /etc/profile.d/maven.sh
 RUN source /etc/profile.d/maven.sh
 
