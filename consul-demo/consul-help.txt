@@ -23,3 +23,5 @@ Available commands are:
     version        Prints the Consul version
     watch          Watch for changes in Consul
 
+Consul v0.7.1
+Protocol 2 spoken by default, understands 2 to 3 (agent will automatically use protocol >2 when speaking to compatible agents)
