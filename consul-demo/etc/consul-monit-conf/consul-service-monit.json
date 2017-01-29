@@ -1,0 +1,4 @@
+{
+  "data_dir": "/tmp/consul-monit-data",
+  "service": {"name": "monit", "tags": ["test","monitoring","jp","test-tag"], "port": 2812}
+}

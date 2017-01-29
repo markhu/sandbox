@@ -1,0 +1,10 @@
+{
+  "service": {
+    "name": "monit",
+    "port": 2812,
+    "check": {
+      "script": "curl localhost:2812 >/dev/null 2>&1", "interval": "10s"
+    },
+    "tags": ["check-tag"]
+  }
+}
