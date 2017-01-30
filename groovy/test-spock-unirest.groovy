@@ -1,7 +1,7 @@
 #!/usr/bin/env groovy
 
 @Grab(group='org.spockframework', module='spock-core', version='1.0-groovy-2.4')  // @Grapes()
-import spock.lang.*  // pulls in non-defaults like @Unroll() and @Requires()
+import spock.lang.* ;  // pulls in non-defaults like @Unroll() and @Requires()
 
 @Grab(group='org.codehaus.groovy.modules.http-builder', module='http-builder', version='0.7')
 import groovyx.net.http.RESTClient
