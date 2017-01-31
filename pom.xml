@@ -88,11 +88,45 @@
       <version>1.3</version>
       <scope>test</scope>
     </dependency>
+
     <dependency>
-    <!-- Ivy is the library which manages the dependencies loaded by @Grab: -->
+      <!-- Ivy is the library which manages the dependencies loaded by @Grab: -->
       <groupId>org.apache.ivy</groupId>
       <artifactId>ivy</artifactId>
       <version>2.4.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.codehaus.groovy.modules.http-builder</groupId>
+      <artifactId>http-builder</artifactId>
+      <version>0.7</version>
+    </dependency>
+
+    <dependency>
+        <!-- alt HTTP requests lib -->
+        <groupId>com.mashape.unirest</groupId>
+        <artifactId>unirest-java</artifactId>
+        <version>1.4.9</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpclient</artifactId>
+      <version>4.3.6</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpasyncclient</artifactId>
+      <version>4.0.2</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.httpcomponents</groupId>
+      <artifactId>httpmime</artifactId>
+      <version>4.3.6</version>
+    </dependency>
+    <dependency>
+      <groupId>org.json</groupId>
+      <artifactId>json</artifactId>
+      <version>20140107</version>
     </dependency>
 </dependencies>
 
