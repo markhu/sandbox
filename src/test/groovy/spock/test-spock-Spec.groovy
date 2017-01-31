@@ -7,7 +7,7 @@ import spock.lang.* ;  // pulls in non-defaults like @Unroll() and @Requires()
 import groovyx.net.http.RESTClient
 
 
-class GroovyRestClientSpec extends spock.lang.Specification {
+class GroovyRestClientSpecTest extends spock.lang.Specification {
   @Shared
 // def client = new RESTClient("http://localhost:8080/beacon/")
   def client = new RESTClient("http://localhost:8080/")  // temp Jenkins stub...
