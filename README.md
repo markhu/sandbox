@@ -17,4 +17,14 @@ sandbox is a test
 1. `docker build -t` repo/name .
 2. `docker run` repo/name <optional_command(s)>
 
+### basic Spock steps:
+
+Note that running the Groovy/Spock scripts standalone requires _un-commenting_ the Grapes/Grab lines.
+And conversely, running them under Maven requires _commenting out_ the Grapes/Grab lines.
+
+1. `mvn clean test` ;  # runs the tests under src/ via Maven
+2. `./src/test/groovy/spock/test-spock-Spec.groovy` ;  # standalone script
+
+---
+
 see also [..](..)
