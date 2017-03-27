@@ -15,6 +15,7 @@ import io.vertx.ext.web.handler.ResponseTimeHandler
 import io.vertx.ext.web.handler.LoggerFormat
 import io.vertx.ext.web.handler.LoggerHandler
 
+def port=8080
 Vertx vertx = Vertx.vertx()  // implied in examples
 def router = Router.router(vertx)
 def route0 = router.route('/*').handler(ResponseTimeHandler.create())  // header: x-response-time
@@ -22,27 +23,26 @@ def route0 = router.route('/*').handler(ResponseTimeHandler.create())  // header
 
 // dynamically-generated content...
 def route1 = router.route('/d')
-  .handler({ routingContext ->
-    routingContext.response()
-      .putHeader("content-type", "text/html")
-      .end("Hello World!\n")
+    .handler({ routingContext ->
+        routingContext.response()
+            .putHeader("content-type", "text/html")
+            .end("Hello World!\n")
     // print "."
-})
+        })
 // .order(1)
 
 // Serve the static pages
 
 def route2 = router.route('/*')
-  .handler(StaticHandler.create("tmp")  // defaults to webroot
-           .setDirectoryListing(true)
-           )
+    .handler(StaticHandler.create("tmp")  // defaults to webroot from PWD
+            .setDirectoryListing(true)
+        )
 // .order(2)
 
-def port=8080
 io.vertx.core.http.HttpServerOptions options = [host:"0.0.0.0", port:port]
 def server = Vertx.vertx().createHttpServer(options)
 server.requestHandler(router.&accept).listen()
 
-println("Server is started")
+println("Server is started on port ${port}")
 
 // EOF
