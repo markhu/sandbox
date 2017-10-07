@@ -25,6 +25,14 @@ And conversely, running them under Maven requires _commenting out_ the Grapes/Gr
 1. `mvn clean test` ;  # runs the tests under src/ via Maven
 2. `./src/test/groovy/spock/test-spock-Spec.groovy` ;  # standalone script
 
+### basic Vert.X steps
+
+Note that running Groovy/VertX scripts from bash env/shbang has differet instantiation defaults vs. using the `vertx` command-line lanucher.
+See more docs at http://vertx.io/docs/vertx-core/groovy/
+
+1. `vertx run ScriptName`  # run in VertX context (auto-import certain libs + instantiated object(s)
+2. `vertx start AppScriptSrv`  # launch VertX app into background process (daemon)
+3. `vertx run ServiceScript -clustert`  # enable VertX eventBus (HazelCast)
 ---
 
 see also [..](..)
