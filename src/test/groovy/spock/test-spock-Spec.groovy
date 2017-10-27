@@ -1,34 +1,33 @@
 #!/usr/bin/env groovy
 
 // Maven can't work with @Grab --find a way to conditionalize it instead of commenting out...
-// @Grab(group='org.spockframework', module='spock-core', version='1.0-groovy-2.4')  // @Grapes()
+@Grab(group='org.spockframework', module='spock-core', version='1.0-groovy-2.4')  // @Grapes()
 import spock.lang.* ;  // pulls in non-defaults like @Unroll() and @Requires()
 
-// @Grab(group='org.codehaus.groovy.modules.http-builder', module='http-builder', version='0.7')
+@Grab(group='org.codehaus.groovy.modules.http-builder', module='http-builder', version='0.7.2')
 import groovyx.net.http.RESTClient
 
 import groovy.json.JsonOutput
 
 class GroovyRestClientSpecTest extends spock.lang.Specification {
   @Shared
-// def client = new RESTClient("http://localhost:8080/beacon/")
-  def client = new RESTClient("https://httpbin.org/")
+  def baseURL = "https://httpbin.org/"
+  def client = new RESTClient(baseURL)
 
   def "initial HTTP call to health"() {
     given: "service is running"
       def tbd = "setup"
-    when: "check health.html page"
+    when: "call a path that returns JSON"
       def response = client.get( path : "get")  // urlpath to append to base
     then: "assert response contains specific data"
       with(response)
       {
           // response.text == "full text"
           status == 200
-          println "INFO: headers:  " + headers.text
+          println "INFO: data.headers:  " + data.headers
           println "INFO: data.url: " + data.url
       }
-      response.data.url == "https://httpbin.org/get"
-      println "PASS: ok"
+      assert response.data.url == "${baseURL}get"
       println "INFO: data: " + response.data
       println "INFO: data.text: " + response.data.text
       println 'INFO: getData(): """\n' + response.getData() + '\n"""'
