@@ -1,10 +1,10 @@
 #!/usr/bin/env groovy
 
 // Maven can't work with @Grab --find a way to conditionalize it instead of commenting out...
-@Grab(group='org.spockframework', module='spock-core', version='1.0-groovy-2.4')  // @Grapes()
+// @Grab(group='org.spockframework', module='spock-core', version='1.1-groovy-2.4')  // @Grapes()
 import spock.lang.* ;  // pulls in non-defaults like @Unroll() and @Requires()
 
-@Grab(group='org.codehaus.groovy.modules.http-builder', module='http-builder', version='0.7.2')
+// @Grab(group='org.codehaus.groovy.modules.http-builder', module='http-builder', version='0.7.2')
 import groovyx.net.http.RESTClient
 
 import groovy.json.JsonOutput

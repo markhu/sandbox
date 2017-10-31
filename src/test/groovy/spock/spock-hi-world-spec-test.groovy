@@ -2,7 +2,7 @@
 
 /*
 @Grapes([
-@Grab(group='org.spockframework', module='spock-core', version='1.0-groovy-2.4')  // @Grapes()
+@Grab(group='org.spockframework', module='spock-core', version='1.1-groovy-2.4')  // @Grapes()
 ])
 */
 import spock.lang.*  // pulls in non-defaults like @Unroll() and @Requires()
