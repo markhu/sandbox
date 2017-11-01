@@ -1,0 +1,33 @@
+apply plugin: 'java'
+apply plugin: 'maven'
+
+group = 'groovy.spock'
+version = '7.01.31'
+
+description = """Spock Groovy tests"""
+
+sourceCompatibility = 1.5
+targetCompatibility = 1.5
+tasks.withType(JavaCompile) {
+	options.encoding = 'UTF-8'
+}
+
+
+repositories {
+     maven { url "http://repo.maven.apache.org/maven2" }
+}
+
+dependencies {
+    compile group: 'org.codehaus.groovy', name: 'groovy-all', version:'2.4.9'
+    compile group: 'org.apache.ivy', name: 'ivy', version:'2.4.0'
+    compile group: 'org.codehaus.groovy.modules.http-builder', name: 'http-builder', version:'0.7'
+    compile group: 'com.mashape.unirest', name: 'unirest-java', version:'1.4.9'
+    compile group: 'org.apache.httpcomponents', name: 'httpclient', version:'4.3.6'
+    compile group: 'org.apache.httpcomponents', name: 'httpasyncclient', version:'4.0.2'
+    compile group: 'org.apache.httpcomponents', name: 'httpmime', version:'4.3.6'
+    compile group: 'org.json', name: 'json', version:'20140107'
+    testCompile group: 'org.spockframework', name: 'spock-core', version:'1.1-groovy-2.4'
+    testCompile group: 'cglib', name: 'cglib-nodep', version:'3.1'
+    testCompile group: 'org.objenesis', name: 'objenesis', version:'2.1'
+    testCompile group: 'org.hamcrest', name: 'hamcrest-core', version:'1.3'
+}
