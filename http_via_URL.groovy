@@ -7,26 +7,31 @@ import spock.lang.*
 class MyFirstSpec extends Specification {
   def "let's try this!"() {
     when: "call a path that returns JSON"
-      // def response = "https://httpbin.org/get".toURL()  // Groovy
-      def response = new URL("http://httpbin.org/get")  // implicit java.net.URL
-      println "raw response: ${response}"
-      println "response.text: ${response.text}"
-      println "response.metaClass ... " + response.metaClass.methods*.name.sort().unique()
+      def url = "http://httpbin.org/get".toURL()  // toURL is Groovy for implicit java.net.URL 
+      println "raw url: ${url}"
+      print   "url.content: (raw)"
+      println  url.content
+      println "url.content: (string-ified)\n${url.content}"
+      println "url.text: (raw) is a Groovy value-added syntactical sugar"
+   // println  url.text
+      println "url.text == url.content: (string-ified) " + ("${url.content}" == "${url.text}")
+      println "url.metaClass ... " + url.metaClass.methods*.name.sort().unique()
 
       println "----"
-      def connection = response.openConnection()
+      def connection = url.openConnection()  // URLConnection
       println "raw connection: ${connection}"
       println "connection.ResponseCode: " + connection.responseCode
       println "connection.metaClass ... " + connection.metaClass.methods*.name.sort().unique()
       println "connection.headerFields: " + connection.headerFields
 
       println "----"
-      def json_map = new groovy.json.JsonSlurper().parseText(response.text)  // getText())
+      def json_map = new groovy.json.JsonSlurper().parseText(url.text)  // getText())
       println "JSON parseText: ${json_map}"
 
     then:
-      response.text =~ /"args"/
-      response.text =~ /"headers"/
+      url.text =~ /"args"/
+      "${url.content}" =~ /"headers"/
+      url.text =~ /"headers"/
       connection.responseCode == 200
   }
 }
