@@ -2,7 +2,7 @@
 .gradle
 /target/
 /META-INF/
-result.html
+result.html*
 *.swp
 
 *.py[co]

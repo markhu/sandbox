@@ -1,20 +1,31 @@
 #!/usr/bin/env groovy
 
 @Grab('org.apache.httpcomponents:httpclient:4.5.3')
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.client.methods.HttpGet 
+import org.apache.http.client.methods.*;  // HttpGet HttpPost
+import org.apache.http.entity.StringEntity
+import org.apache.http.impl.client.DefaultHttpClient
 
-def httpClient = new DefaultHttpClient() 
+// GET method is fairly easy...
 def url = 'http://www.google.com/search?q=Groovy'
-def httpGet = new HttpGet(url) 
+def httpResponse = new DefaultHttpClient().execute(new HttpGet(url)) 
 
-def httpResponse = httpClient.execute(httpGet) 
 def contentText = httpResponse.entity.content.text  // store self-closing stream
-println "httpResponse.getStatusLine(): ${httpResponse.getStatusLine()}"
-// println "httpResponse.getStatusLine().getStatusCode(): ${httpResponse.getStatusLine().getStatusCode()}"
-println "content.text length: ${contentText.length()} of ${url}"
+def ct = httpResponse.entity.contentType
+println "URL ${url} returned httpResponse.statusLine: ${httpResponse.statusLine}"
+// println " ... httpResponse.statusLine.statusCode: ${httpResponse.statusLine.statusCode}"
 
 def filename = 'result.html'
-println "Writing output to ${filename}"
+// println "DEBUG: httpResponse: ${httpResponse}"
+println "Writing ${contentText.length()} bytes of ${ct} to ${filename}"
 new File(filename).text = contentText
 
+// POST method is slightly more complex...
+httpRequest = new HttpPost("https://jsonplaceholder.typicode.com/posts")
+httpRequest.setEntity(new StringEntity("""{"userId":1,"title":"Joe","body":"Slim"}"""))
+httpRequest.setHeader("Accept", "application/json")
+httpRequest.setHeader("Content-type", "application/json")
+httpResponse = new DefaultHttpClient().execute(httpRequest)
+contentText = httpResponse.entity.content.text  // store self-closing stream
+println "Received ${contentText.length()} bytes of ${httpResponse.entity.contentType} from POST"
+httpResponse.allHeaders.each { println it }
+println "\n${contentText}"
