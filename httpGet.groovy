@@ -9,6 +9,7 @@ import org.apache.http.impl.client.DefaultHttpClient
 def url = 'http://www.google.com/search?q=Groovy'
 def httpResponse = new DefaultHttpClient().execute(new HttpGet(url)) 
 
+println "URL ${url} returned length... ${httpResponse.entity.contentLength}"
 def contentText = httpResponse.entity.content.text  // store self-closing stream
 def ct = httpResponse.entity.contentType
 println "URL ${url} returned httpResponse.statusLine: ${httpResponse.statusLine}"

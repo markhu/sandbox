@@ -3,6 +3,7 @@
 // simple mock/stub web service  --by mHudson 2017.03
 // benchmark with:  wrk -c 2 -d 4 -t 2 http://localhost:8080
 
+// groovy.grape.Grape.grab("io.vertx:vertx-core:3.4.2")
 @Grab("io.vertx:vertx-core:3.4.2")
 import io.vertx.core.Vertx
 
