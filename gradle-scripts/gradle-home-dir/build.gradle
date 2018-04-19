@@ -1,0 +1,38 @@
+
+// Gradle project properties --note that "name" is implied by subdirectory and is not easily overidden...
+group "com.example"
+version '0.1.8-SNAPSHOT'
+
+tasks.tasks.description += "\n\ntry also: printProps, getHomeDir, ..."  // a trick to make "Other tasks" more visible --what's the "right way?!?"
+
+
+// invoke with: gradle getHomeDir 
+
+task getHomeDir {
+  // requires printProps
+  doLast {
+    println "gradle.gradleHomeDir: " + gradle.gradleHomeDir
+  }
+}
+
+task printEnv {
+    description = "Print various environment variables..."
+    doLast {
+        println "HOME:           ${env.HOME}"
+        println "USER:           ${env.HOME}"
+        println "JAVA_HOME:      ${env.JAVA_HOME}"
+    }
+}
+
+task printProps {
+    description = "Print project.version and group..."
+    doLast {
+        println "group:           ${group}"
+        println "name:            ${name}"
+        println "version:         ${version}"
+        println "project.group:   ${project.group}"
+        println "project.name:    ${project.name}"
+        println "project.version: " + project.version
+        println "ToDo: other system.Properties..."
+    }
+}
