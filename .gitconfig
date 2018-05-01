@@ -1,0 +1,20 @@
+[user]
+    name = Mark Hudson
+    email = mark.github@mhudson.net
+[push]
+    default = matching
+[alias]
+    pul = pull  # common typo
+    pus = push  # common typo
+    puh = push  # common typo
+    log1 = log -n11 --oneline
+    log2 = log -n2 --stat --abbrev-commit
+    log4 = log -n4 --stat --abbrev-commit
+    graph = log --graph --oneline --all --decorate
+    tags = tag -l -n2
+    desca = describe --always --long --dirty --tags
+
+[commit]
+	gpgsign = true
+
+# note also other strange and wonderful "alias-ish" commands available via `brew install git-extras`
