@@ -15,6 +15,6 @@
     desca = describe --always --long --dirty --tags
 
 [commit]
-	gpgsign = true
+    gpgsign = true
 
 # note also other strange and wonderful "alias-ish" commands available via `brew install git-extras`
