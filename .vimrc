@@ -1,5 +1,5 @@
 
-" A 'minimal' ~/.vimrc file
+" A 'minimal' ~/.vimrc file --based on un-commenting lines in /etc/vim/vimrc
 
 set bg=dark
 set expandtab
@@ -19,4 +19,3 @@ syntax on  " colorize hilighting
 " restore last position when reopening a file --requires `mkdir -p ~/.vim/`
 au BufWinLeave * mkview
 au BufWinEnter * silent loadview
-
