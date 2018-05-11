@@ -1,0 +1,13 @@
+// Place your key bindings in this file to overwrite the defaults for VS Code editor.
+// MacOS location: ~/Library/Application Support/Code/User/keybindings.json
+// The below work well whith PC-ish keyboards that have CTRL key on the right.
+[
+    {
+        "key": "ctrl+pagedown",
+        "command": "workbench.action.nextEditorInGroup"
+    },
+    {
+        "key": "ctrl+pageup",
+        "command": "workbench.action.previousEditorInGroup"
+    }
+]
