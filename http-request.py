@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import json
-import requests
+import requests  # HTTP Requests lib
 
 r = requests.get("http://example.com/")
 
