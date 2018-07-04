@@ -1,0 +1,29 @@
+{
+    // Use IntelliSense to learn about possible attributes in ./.vscode/launch.json
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "detox mocha",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceRoot}/packages/mobile/node_modules/mocha/bin/_mocha",
+            "stopOnEntry": false,
+            "args": [ "packages/mobile/e2e",
+                "--opts",
+                "${workspaceRoot}/packages/mobile/e2e/mocha.opts",
+                "--no-timeouts",
+                "--colors"
+            ],
+            "cwd": "${workspaceRoot}",
+            "runtimeExecutable": null,
+            "env": { "NODE_ENV": "testing" }
+         },
+         {
+            "type": "node",
+            "request": "launch",
+            "name": "Launch Program",
+            "program": "${file}"
+        }
+    ]
+}
