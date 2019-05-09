@@ -3,6 +3,7 @@
 # appium test demo --Mark Hudson, 2019 May 08
 # prep step(s) for Android:
 #   $ emulator -avd "Nexus_5X_API_27"
+#   (Appium server running)
 
 import unittest
 from appium import webdriver
@@ -21,7 +22,7 @@ class app:
 
     self.driver = webdriver.Remote('http://localhost:4723/wd/hub', desired_caps)
 
-    inst = self.driver.is_app_installed(testApp)
+    # inst = self.driver.is_app_installed(testApp)
 
     # send keys to enter ZIP code
     el = self.driver.find_element_by_id(testApp + ":id/activity_zipcode")
@@ -31,8 +32,8 @@ class app:
     el = self.driver.find_element_by_id(testApp + ":id/activity_zipcode_next")
     TouchAction(self.driver).tap(el).perform()
 
-    # wait for ZIPcode processing...
-    self.driver.implicitly_wait(3)
+    # wait for ZIPcode processing... there's probably a better way...
+    self.driver.implicitly_wait(4)
 
     # assert text field visible
     r = self.driver.find_elements_by_id(testApp + textID)
