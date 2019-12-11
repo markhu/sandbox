@@ -38,7 +38,7 @@ if __name__ == "__main__":
   try:
     filename = sys.argv[1]
   except:
-    filename = "/Users/mark.hudson/git/mvj-qa-automation/Results/output-test.xml"
+    filename = "Results/output.xml"
 
   print("DEBUG: test data filename: " + filename)
   RF_Listener.output_file(self=None,path=filename)

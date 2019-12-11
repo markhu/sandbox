@@ -5,11 +5,11 @@ sandbox is a test
 
 ## basic Git steps:
 
-1. git-clone
-2. edit files
-2. git add  # (optional)
-3. git-commit
-4. git-push
+1. `git-clone`
+2. (edit files)
+2. `git add`  # (optional)
+3. `git-commit`
+4. `git-push`
 
 
 ### basic docker steps:
@@ -27,7 +27,7 @@ And conversely, running them under Maven requires _commenting out_ the Grapes/Gr
 
 ### basic Vert.X steps
 
-Note that running Groovy/VertX scripts from bash env/shbang has differet instantiation defaults vs. using the `vertx` command-line lanucher.
+Note that running Groovy/VertX scripts from bash env/shbang has different instantiation defaults vs. using the `vertx` command-line lanucher.
 See more docs at http://vertx.io/docs/vertx-core/groovy/
 
 1. `vertx run ScriptName`  # run in VertX context (auto-import certain libs + instantiated object(s)
