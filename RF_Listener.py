@@ -27,7 +27,7 @@ class RF_Listener:  # class should be same as filename
         cntPassed = int(type_tag.attrib.get("pass"))  # attrib is dict-like (except for 'text')
         cntFailed = int(type_tag.attrib.get("fail"))
         cntTests = cntPassed + cntFailed
-        pct_pass = cntPassed / cntTests * 100
+        pct_pass = cntPassed / (cntTests + 0.01) * 100  # defend divide-by-zero
         fmt_str = "{}: {} tests, {} passed, {} failed, {:.3g}% pass rate (--listener summary)"
         print(fmt_str.format(type_tag.text,cntTests, cntPassed, cntFailed,pct_pass))
       # optionally write grand total results summary to a file
