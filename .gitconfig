@@ -4,16 +4,24 @@
 [push]
 	default = current
 [alias]
+    branches = branch -a
+    desca = describe --always --long --dirty --tags
     pul = pull  # common typo
+    ppul = pull  # common typo
+    ppull = pull  # common typo
+    ull = pull  # common typo
     pus = push  # common typo
     puh = push  # common typo
+    l0g1 = log -n11 --oneline
     log1 = log -n11 --pretty=format:'%C(auto,yellow)%h %C(auto,blue)%>(18,trunc)%ad %C(auto,green)%<(12,trunc)%aN %C(auto,reset)%s%C(auto,red)% gD% D'
     lo1 = log -n11 --oneline
     log2 = log -n2 --stat --abbrev-commit
     log4 = log -n4 --stat --abbrev-commit
     graph = log --graph --oneline --all --decorate
     tags = tag -l -n2
-    desca = describe --always --long --dirty --tags
+    merger = merge remotes/origin/
+    tre = log --graph --oneline --all
+    tree = log -n19 --graph --all --pretty=format:'%C(auto,yellow)%h %C(auto,blue)%>(18,trunc)%ad %C(auto,green)%<(12,trunc)%aN %C(auto,reset)%s%C(auto,red)% gD% D'
 
 [commit]
 #   gpgsign = true
