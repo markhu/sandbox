@@ -1,4 +1,4 @@
 
 set -x
-brew cask upgrade chromedriver
+brew upgrade --cask chromedriver
 
