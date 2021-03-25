@@ -1,0 +1,25 @@
+{
+    "job_attributes": [
+        {
+            "SDET": [
+                "automation",
+                "CI/CD (automated test execution and reporting)",
+                "Code Reviews"
+            ]
+        },
+        {
+            "virtual_environments": [
+                "cloud",
+                "docker",
+                "distributed logging"
+            ]
+        },
+        {
+            "full-stack": [
+                "web-API (REST+JSON)",
+                "CI/CD (build & deploy via Jenkins, BitRise.io)",
+                "web-apps (React)"
+            ]
+        }
+    ]
+}
