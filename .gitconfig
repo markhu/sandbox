@@ -1,8 +1,10 @@
 [user]
     name = Mark Hudson
     email = mark.github@mhudson.net
+[pull]
+    rebase = false
 [push]
-	default = current
+    default = current
 [alias]
     branches = branch -a
     desca = describe --always --long --dirty --tags
