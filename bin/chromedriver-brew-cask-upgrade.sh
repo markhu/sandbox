@@ -1,4 +1,7 @@
+#!/usr/bin/bash
 
+# brew cask reinstall chromedriver
 set -x
-brew upgrade --cask chromedriver
+brew cask upgrade chromedriver
+chromedriver --version
 
