@@ -1,31 +1,36 @@
 [user]
     name = Mark Hudson
     email = mark.github@mhudson.net
-[pull]
-    rebase = false
-[push]
-    default = current
 [alias]
     branches = branch -a
     desca = describe --always --long --dirty --tags
+    graph = log --graph --oneline --all --decorate -n21
+    log1 = log -n11 --pretty=format:'%C(auto,yellow)%h %C(auto,blue)%>(18,trunc)%ad %C(auto,green)%<(12,trunc)%aN %C(auto,reset)%s%C(auto,red)% gD% D'
+    tags = tag -l -n2
+    merger = merge remotes/origin/
+    tre = log --graph --oneline --all -n21
+    tree = log -n19 --graph --all --pretty=format:'%C(auto,yellow)%h %C(auto,blue)%>(18,trunc)%ad %C(auto,green)%<(12,trunc)%aN %C(auto,reset)%s%C(auto,red)% gD% D'
+    l0g1 = log -n11 --oneline
+    lo1 = log -n11 --oneline
+    log2 = log -n2 --stat --abbrev-commit
+    log3 = log -n3 --stat --abbrev-commit
+    log4 = log -n4 --stat --abbrev-commit
     pul = pull  # common typo
     ppul = pull  # common typo
     ppull = pull  # common typo
     ull = pull  # common typo
     pus = push  # common typo
     puh = push  # common typo
-    l0g1 = log -n11 --oneline
-    log1 = log -n11 --pretty=format:'%C(auto,yellow)%h %C(auto,blue)%>(18,trunc)%ad %C(auto,green)%<(12,trunc)%aN %C(auto,reset)%s%C(auto,red)% gD% D'
-    lo1 = log -n11 --oneline
-    log2 = log -n2 --stat --abbrev-commit
-    log4 = log -n4 --stat --abbrev-commit
-    graph = log --graph --oneline --all --decorate
-    tags = tag -l -n2
-    merger = merge remotes/origin/
-    tre = log --graph --oneline --all
-    tree = log -n19 --graph --all --pretty=format:'%C(auto,yellow)%h %C(auto,blue)%>(18,trunc)%ad %C(auto,green)%<(12,trunc)%aN %C(auto,reset)%s%C(auto,red)% gD% D'
 
+[pull]
+    rebase = false
+[push]
+    default = current
 [commit]
 #   gpgsign = true
 
 # note also other strange and wonderful "alias-ish" commands available via `brew install git-extras`
+[diff "sopsdiffer"]
+	textconv = sops -d
+[core]
+	autocrlf = input
