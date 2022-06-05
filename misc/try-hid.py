@@ -11,7 +11,7 @@ print("~" * 80)
 print("hid.enumerate()")
 
 for h in hid.enumerate():
-  if h["vendor_id"] not in [4176,8738,9610]:
+  if h["vendor_id"] not in [4176,8738,9610,0]:
     print("~" * 80)
     for e in h.items():
       print(e)
