@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 // Configuration defaults
 // -----------------------------------------------------------------------------
+#define BLE_PREFIX "RAINpark"
 #ifndef LED_PIN
 #define LED_PIN 2
 #endif
@@ -88,7 +89,7 @@ struct BleCharacteristic {
   String hexValue;
 };
 
-String bleName = "RAINBIRD"; // will append MAC suffix in setup
+String bleName = BLE_PREFIX; // will append MAC suffix in setup
 String bleServiceUuid = "12345678-1234-1234-1234-123456789ABC";
 BleCharacteristic bleChars[2] = {
   {"AC9005F6-80BE-42A2-925E-A8C93049E8DA", "31342e322e3132"},  // "14.2.12"   # model number?
@@ -442,7 +443,7 @@ static String htmlPage() {
   String statsBlock = "";  // String statsBlock = "<div id=stats>Loading...</div>";
   // modularized HTML so we can comment out the "Toggle LED" button as-desired
   String toggleButton = ""; // String toggleButton = "<button onclick=toggle()>Toggle LED</button>";
-  String title = "ESP32 Blink";
+  String title = "ESP32 WROOM";
 
   String page = "<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + title + "</title><style>body{font-family:Arial;margin:1em;}button{padding:0.6em 1em;font-size:1.1em;} ul{list-style:none;padding:0;} li{margin:0.5em 0;} form label{display:block;margin:0.5em 0;} input[type=text]{width:300px;} .ascii{color:#666;font-style:italic;} .hex-display{color:#007bff;font-family:monospace;margin-left:10px;} .char-group{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:5px;}</style></head><body><h1>" + title + "</h1>"
         + statsBlock + toggleButton
@@ -762,7 +763,7 @@ void setup() {
 
   // Display help text on new serial connection
   Serial.println();
-  Serial.println("=== ESP32 Blink Device ===");
+  Serial.println("=== ESP32 WROOM ===");
   Serial.println("Serial monitor connected successfully!");
   Serial.println();
   Serial.println("Available commands:");

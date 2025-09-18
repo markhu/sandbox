@@ -113,7 +113,7 @@ This project supports three tiers of Wi-Fi credential handling:
 
 1. Build-time injection (environment variables) – `WIFI_SSID` / `WIFI_PASS` -> generates `include/generated_secrets.h` (gitignored) when `USE_WIFI` is defined.
 2. NVS persistence – enable `USE_WIFI_NVS` to load/save credentials in flash (Preferences API). First successful connection using build-time or provisioned creds persists them.
-3. Serial provisioning – add `ALLOW_WIFI_PROVISION` to allow entering creds at runtime over serial (no recompilation). Format: `wifi:MySSID:MyPassword` followed by Enter. To clear: `wifi:clear`.
+3. Serial provisioning – add `ALLOW_WIFI_PROVISION` to allow entering creds at runtime over serial (no recompilation). Format: `wifi/MySSID/MyPassword` followed by Enter. To clear: `wifi/clear`.
 
 Optional macro: `CLEAR_WIFI_NVS` (one build) to erase stored creds on boot.
 
@@ -139,7 +139,7 @@ Remove `-DCLEAR_WIFI_NVS` after that flash.
 Open serial monitor (115200) and type:
 
 ```text
-wifi:MyNetwork:SuperSecretPass
+wifi/MyNetwork/SuperSecretPass
 ```
 If using OLED you'll briefly see status update. After first connect (with NVS enabled) credentials are stored; you can remove `USE_WIFI` build-time env injection afterward.
 
@@ -167,15 +167,6 @@ Routes:
 - `/api/status` returns JSON: `{led,count,uptime_ms,ip?}`
 - `/api/toggle` POST toggles LED (204 No Content)
 
-### mDNS hostname
-
-Enable with:
-
-```ini
-build_flags = ${env:esp32dev.build_flags} -DUSE_MDNS -DMDNS_HOST=\"esp32-blink\"
-```
-
-Then browse to: `http://esp32-blink.local/` (macOS / Linux Avahi by default). Adds `_http._tcp` service.
 
 ### BLE advertising
 
