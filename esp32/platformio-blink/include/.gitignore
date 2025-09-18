@@ -1,0 +1,2 @@
+# Ignore generated secrets header
+/generated_secrets.h
