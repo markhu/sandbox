@@ -1,11 +1,12 @@
-# PlatformIO ESP32 Blink Quickstart
+# PlatformIO ESP32 project
 
-This is a minimal, friendly starting point for your ESP32 DevKit (WROOM) using PlatformIO + Arduino framework.
+Started as a minimal, friendly starting point for your ESP32 DevKit (WROOM) using PlatformIO + Arduino framework.
+Features added to support general-purpose BLE and Wi-Fi testing.
 
 ## What you get
 
 - `platformio.ini` configured for `esp32dev` board (ESP32-WROOM-32)
-- `src/main.cpp` simple blink + serial log at 115200 baud
+- `src/main.cpp` supports serial log at 115200 baud
 - Fast upload speed (460800) and debug log level set to 3
 
 ## Folder structure

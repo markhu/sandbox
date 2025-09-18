@@ -71,6 +71,80 @@ static void oledPrintCentered(const String &l1, const String &l2 = "", uint8_t s
 #endif
 
 // -----------------------------------------------------------------------------
+// BLE Advertising (variables declared early for provisioning)
+// -----------------------------------------------------------------------------
+#ifdef USE_BLE_ADV
+#include <NimBLEDevice.h>
+#ifndef BLE_ADV_NAME
+#define BLE_ADV_NAME "" // dynamic by default
+#endif
+static NimBLEAdvertising* pAdvertising = nullptr;
+char gBleName[20];
+static unsigned long lastBleUpdate = 0;
+bool bleNeedsRestart = false;
+
+struct BleCharacteristic {
+  String uuid;
+  String hexValue;
+};
+
+String bleName = "RAINBIRD"; // will append MAC suffix in setup
+String bleServiceUuid = "12345678-1234-1234-1234-123456789ABC";
+BleCharacteristic bleChars[2] = {
+  {"AC9005F6-80BE-42A2-925E-A8C93049E8DA", "31342e322e3132"},  // "14.2.12"   # model number?
+  {"4D41385F-3629-7E51-B387-27116C3391A3", "342e3132332e30"}  // "4.123.0"    # firmware version
+};
+
+NimBLEService *pService = nullptr;
+NimBLECharacteristic *pChar1 = nullptr;
+NimBLECharacteristic *pChar2 = nullptr;
+
+// BLE Server Callbacks for detailed logging
+class MyServerCallbacks: public NimBLEServerCallbacks {
+    void onConnect(NimBLEServer* pServer) {
+        Serial.println("[BLE] Client connected");
+        Serial.printf("[BLE] Connected devices: %d\n", pServer->getConnectedCount());
+    }
+
+    void onDisconnect(NimBLEServer* pServer) {
+        Serial.println("[BLE] Client disconnected");
+        Serial.printf("[BLE] Connected devices: %d\n", pServer->getConnectedCount());
+        if (pServer->getConnectedCount() == 0) {
+            Serial.println("[BLE] No clients connected, restarting advertising");
+            pServer->startAdvertising();
+        }
+    }
+
+    void onMTUChange(uint16_t MTU, ble_gap_conn_desc* desc) {
+        Serial.printf("[BLE] MTU update event: conn_handle=%d, new_mtu=%d\n", desc->conn_handle, MTU);
+        Serial.printf("[BLE] Connection details: peer_addr=%02x:%02x:%02x:%02x:%02x:%02x\n",
+                     desc->peer_id_addr.val[5], desc->peer_id_addr.val[4], desc->peer_id_addr.val[3],
+                     desc->peer_id_addr.val[2], desc->peer_id_addr.val[1], desc->peer_id_addr.val[0]);
+    }
+};
+
+std::string hexStringToBytes(String hex) {
+  std::string bytes;
+  for(size_t i = 0; i < hex.length(); i += 2) {
+    String byteStr = hex.substring(i, i + 2);
+    char byte = strtol(byteStr.c_str(), NULL, 16);
+    bytes += byte;
+  }
+  return bytes;
+}
+
+String hexStringToAscii(String hex) {
+  String ascii = "";
+  for(size_t i = 0; i < hex.length(); i += 2) {
+    String byteStr = hex.substring(i, i + 2);
+    char byte = strtol(byteStr.c_str(), NULL, 16);
+    ascii += byte;
+  }
+  return ascii;
+}
+#endif
+
+// -----------------------------------------------------------------------------
 // Wi-Fi + NVS credentials + provisioning
 // -----------------------------------------------------------------------------
 #ifdef USE_WIFI
@@ -141,9 +215,31 @@ static void tryConnectWifi() {
 #endif
   }
 }
+
+static void printHelp() {
+  Serial.println();
+  Serial.println("Provisioning commands:");
+  Serial.println("  wifi/SSID/PASSWORD  -> set / connect (password masked)");
+  Serial.println("  wifi/clear           -> erase stored credentials");
+  Serial.println("  wifi/status          -> show connection status");
+  Serial.println("  wifi/scan            -> scan for nearby Wi-Fi networks");
+  Serial.println("  ble/name NAME        -> set BLE device name");
+  Serial.println("  ble/service UUID     -> set service UUID");
+  Serial.println("  ble/char1 UUID HEX   -> set char1 UUID and hex value");
+  Serial.println("  ble/char2 UUID HEX   -> set char2 UUID and hex value");
+  Serial.println("  ble/status           -> show current BLE config");
+  Serial.println("  exit                 -> exit provisioning mode");
+  Serial.println("  quit / disconnect    -> show serial monitor exit instructions");
+  Serial.println("  help / ?             -> this help");
+}
+
+
 #if defined(ALLOW_WIFI_PROVISION)
 static String provBuf;
+static bool provisioningMode = true; // start in provisioning mode
 static void handleProvisioning() {
+  if (!Serial.available()) return;
+
   while (Serial.available()) {
     char c=(char)Serial.read();
     if (c=='\r') {
@@ -159,14 +255,43 @@ static void handleProvisioning() {
       continue;
     }
     if(c=='\n') {
+      // Check for help command to re-enter provisioning mode
+      if (!provisioningMode && (provBuf == "help" || provBuf == "?")) {
+        provisioningMode = true;
+        printHelp();
+        provBuf=""; Serial.print("\nesp> ");
+        return;
+      }
+
+      // If not in provisioning mode, ignore other commands
+      if (!provisioningMode) {
+        provBuf="";
+        return;
+      }
+
       if (provBuf == "help" || provBuf == "?" ) {
+        printHelp();
+      } else if (provBuf == "exit" || provBuf == "quit" || provBuf.indexOf("disco") >= 0) {
+        provisioningMode = false;
         Serial.println();
-        Serial.println("Provisioning commands:");
-        Serial.println("  wifi:SSID:PASSWORD  -> set / connect (password masked)");
-        Serial.println("  wifi:clear           -> erase stored credentials");
-        Serial.println("  wifi:status          -> show connection status");
-        Serial.println("  help / ?             -> this help");
-      } else if (provBuf.startsWith("wifi:status")) {
+        Serial.println("=== SERIAL MONITOR EXIT INSTRUCTIONS ===");
+        Serial.println("The ESP32 cannot force-close your serial monitor.");
+        Serial.println("To exit, use your serial monitor's exit method:");
+        Serial.println();
+        Serial.println("• PlatformIO: Press Ctrl+C");
+        Serial.println("• Arduino IDE: Close the Serial Monitor window");
+        Serial.println("• Terminal/Screen: Press Ctrl+A then K, or Ctrl+C");
+        Serial.println("• Minicom: Press Ctrl+A then X");
+        Serial.println("• PuTTY: Close the window or press Ctrl+C");
+        Serial.println();
+        Serial.println("Device will continue running normally.");
+        Serial.println("=== END EXIT INSTRUCTIONS ===");
+        Serial.println();
+        Serial.println("[prov] Exiting provisioning mode. Device will continue normal operation.");
+        Serial.println("       Enter 'help' or '?' to re-enter provisioning mode.");
+        provBuf="";
+        return;
+      } else if (provBuf.startsWith("wifi/status")) {
 #ifdef USE_WIFI
         if (wifiConnected && WiFi.isConnected()) {
           long rssi = WiFi.RSSI();
@@ -179,22 +304,110 @@ static void handleProvisioning() {
 #else
         Serial.println("[wifi] WiFi disabled at build time");
 #endif
-      } else if (provBuf.startsWith("wifi:clear")) {
+      } else if (provBuf.startsWith("wifi/scan")) {
+#ifdef USE_WIFI
+        Serial.println("[wifi] Scanning for networks...");
+        int n = WiFi.scanNetworks();
+        if (n == 0) {
+          Serial.println("[wifi] No networks found");
+        } else {
+          Serial.printf("[wifi] Found %d networks:\n", n);
+          for (int i = 0; i < n; ++i) {
+            String authType = "";
+            switch (WiFi.encryptionType(i)) {
+              case WIFI_AUTH_OPEN: authType = "Open"; break;
+              case WIFI_AUTH_WEP: authType = "WEP"; break;
+              case WIFI_AUTH_WPA_PSK: authType = "WPA"; break;
+              case WIFI_AUTH_WPA2_PSK: authType = "WPA2"; break;
+              case WIFI_AUTH_WPA_WPA2_PSK: authType = "WPA/WPA2"; break;
+              case WIFI_AUTH_WPA2_ENTERPRISE: authType = "WPA2-ENT"; break;
+              case WIFI_AUTH_WPA3_PSK: authType = "WPA3"; break;
+              default: authType = "Unknown"; break;
+            }
+            Serial.printf("  %2d: %-20s %3ddBm %s\n", i+1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), authType.c_str());
+          }
+        }
+#else
+        Serial.println("[wifi] WiFi disabled at build time");
+#endif
+      } else if (provBuf.startsWith("ble/status")) {
+#ifdef USE_BLE_ADV
+        Serial.printf("[ble] Name: %s\n", bleName.c_str());
+        Serial.printf("[ble] Service: %s\n", bleServiceUuid.c_str());
+        String ascii1 = hexStringToAscii(bleChars[0].hexValue);
+        Serial.printf("[ble] Char1: %s \"%s\" (hex: %s)\n", bleChars[0].uuid.c_str(), ascii1.c_str(), bleChars[0].hexValue.c_str());
+        String ascii2 = hexStringToAscii(bleChars[1].hexValue);
+        Serial.printf("[ble] Char2: %s \"%s\" (hex: %s)\n", bleChars[1].uuid.c_str(), ascii2.c_str(), bleChars[1].hexValue.c_str());
+#else
+        Serial.println("[ble] BLE disabled at build time");
+#endif
+      } else if (provBuf.startsWith("ble/name ")) {
+#ifdef USE_BLE_ADV
+        bleName = provBuf.substring(9);
+        bleNeedsRestart = true;
+        Serial.printf("[ble] Name set to: %s\n", bleName.c_str());
+#else
+        Serial.println("[ble] BLE disabled at build time");
+#endif
+      } else if (provBuf.startsWith("ble/service ")) {
+#ifdef USE_BLE_ADV
+        bleServiceUuid = provBuf.substring(12);
+        bleNeedsRestart = true;
+        Serial.printf("[ble] Service UUID set to: %s\n", bleServiceUuid.c_str());
+#else
+        Serial.println("[ble] BLE disabled at build time");
+#endif
+      } else if (provBuf.startsWith("ble/char1 ")) {
+#ifdef USE_BLE_ADV
+        int space1 = provBuf.indexOf(' ', 10);
+        if (space1 > 10) {
+          String uuid = provBuf.substring(10, space1);
+          String hex = provBuf.substring(space1 + 1);
+          bleChars[0].uuid = uuid;
+          bleChars[0].hexValue = hex;
+          bleNeedsRestart = true;
+          Serial.printf("[ble] Char1 set to: %s %s\n", uuid.c_str(), hex.c_str());
+        } else {
+          Serial.println("[ble] Bad format. Use ble/char1 UUID HEX");
+        }
+#else
+        Serial.println("[ble] BLE disabled at build time");
+#endif
+      } else if (provBuf.startsWith("ble/char2 ")) {
+#ifdef USE_BLE_ADV
+        int space1 = provBuf.indexOf(' ', 10);
+        if (space1 > 10) {
+          String uuid = provBuf.substring(10, space1);
+          String hex = provBuf.substring(space1 + 1);
+          bleChars[1].uuid = uuid;
+          bleChars[1].hexValue = hex;
+          bleNeedsRestart = true;
+          Serial.printf("[ble] Char2 set to: %s %s\n", uuid.c_str(), hex.c_str());
+        } else {
+          Serial.println("[ble] Bad format. Use ble/char2 UUID HEX");
+        }
+#else
+        Serial.println("[ble] BLE disabled at build time");
+#endif
+      } else if (provBuf.startsWith("wifi/clear")) {
 #ifdef USE_WIFI_NVS
         clearCredsNvs();
 #endif
         wifiSsid=""; wifiPass=""; wifiConnected=false; Serial.println("[prov] Cleared creds");
-      } else if (provBuf.startsWith("wifi:")) {
-        int sep=provBuf.indexOf(':',5);
+      } else if (provBuf.startsWith("wifi/")) {
+        int sep=provBuf.indexOf('/',5);
         if(sep>5){ String ssid=provBuf.substring(5,sep); String pass=provBuf.substring(sep+1); wifiSsid=ssid; wifiPass=pass; Serial.printf("[prov] Got ssid='%s' len(pass)=%d\n",ssid.c_str(),pass.length());
 #ifdef USE_WIFI_NVS
           saveCredsToNvs(ssid,pass); nvsLoaded=true;
 #endif
           tryConnectWifi(); }
-        else Serial.println("[prov] Bad format. Use wifi:SSID:PASSWORD");
+        else Serial.println("[prov] Bad format. Use wifi/SSID/PASSWORD");
       }
-      provBuf=""; Serial.print("\nwifi> "); }
-    else {
+      provBuf="";
+      if (provisioningMode) {
+        Serial.print("\nesp> ");
+      }
+    } else {
       if (c >= 0x20 && c < 0x7F) { // printable ASCII
         if(provBuf.length()<160) {
           int firstColon = provBuf.indexOf(':');  // Mask password chars after 2nd colon
@@ -223,7 +436,37 @@ static String htmlPage() {
 #ifdef USE_WIFI
   if (wifiConnected && WiFi.isConnected()) ip = WiFi.localIP().toString();
 #endif
-  String page = F("<!DOCTYPE html><html><head><meta charset='utf-8'><title>ESP32 Blink</title><style>body{font-family:Arial;margin:1em;}button{padding:0.6em 1em;font-size:1.1em;} ul{list-style:none;padding:0;} li{margin:0.5em 0;}</style></head><body><h1>ESP32 Blink</h1><div id=stats>Loading...</div><button onclick=toggle()>Toggle LED</button><h2>API Endpoints</h2><ul><li><strong>/api/status</strong> - Current LED state, counter, uptime, Wi-Fi IP, BLE name</li><li><strong>/api/toggle</strong> (POST) - Toggle LED on/off</li><li><strong>/api/info</strong> - Build info, memory usage, feature flags</li><li><strong>/api/wifi</strong> - Wi-Fi connection status (SSID, IP, RSSI)</li></ul><script>async function refresh(){let r=await fetch('/api/status');let j=await r.json();document.getElementById('stats').innerText=JSON.stringify(j,null,2);}async function toggle(){await fetch('/api/toggle',{method:'POST'});refresh();}refresh();setInterval(refresh,3000);</script></body></html>");
+  String ascii1 = hexStringToAscii(bleChars[0].hexValue);
+  String ascii2 = hexStringToAscii(bleChars[1].hexValue);
+  // modularized HTML so we can decide not to display the JSON stats block
+  String statsBlock = "";  // String statsBlock = "<div id=stats>Loading...</div>";
+  // modularized HTML so we can comment out the "Toggle LED" button as-desired
+  String toggleButton = ""; // String toggleButton = "<button onclick=toggle()>Toggle LED</button>";
+  String title = "ESP32 Blink";
+
+  String page = "<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + title + "</title><style>body{font-family:Arial;margin:1em;}button{padding:0.6em 1em;font-size:1.1em;} ul{list-style:none;padding:0;} li{margin:0.5em 0;} form label{display:block;margin:0.5em 0;} input[type=text]{width:300px;} .ascii{color:#666;font-style:italic;} .hex-display{color:#007bff;font-family:monospace;margin-left:10px;} .char-group{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:5px;}</style></head><body><h1>" + title + "</h1>"
+        + statsBlock + toggleButton
+        + "<h2>BLE Configuration</h2><form action='/api/ble/config' method='post'><label>BLE Name: <input type='text' name='ble_name' value='";
+  page += bleName;
+  page += "'></label><label>Service UUID: <input type='text' name='service_uuid' value='";
+  page += bleServiceUuid;
+  page += "'></label><div class='char-group'><h3>Characteristic 1</h3><label>UUID: <input type='text' name='char1_uuid' value='";
+  page += bleChars[0].uuid;
+  page += "'></label><label>String Value: <input type='text' id='char1_string' onkeyup='updateHex(1)' value='";
+  page += ascii1;
+  page += "'> <span class='hex-display'>Hex: <span id='char1_hex_display'>";
+  page += bleChars[0].hexValue;
+  page += "</span></span></label><input type='hidden' name='char1_hex' id='char1_hex' value='";
+  page += bleChars[0].hexValue;
+  page += "'></div><div class='char-group'><h3>Characteristic 2</h3><label>UUID: <input type='text' name='char2_uuid' value='";
+  page += bleChars[1].uuid;
+  page += "'></label><label>String Value: <input type='text' id='char2_string' onkeyup='updateHex(2)' value='";
+  page += ascii2;
+  page += "'> <span class='hex-display'>Hex: <span id='char2_hex_display'>";
+  page += bleChars[1].hexValue;
+  page += "\"</span></label><input type='hidden' name='char2_hex' id='char2_hex' value='";
+    page += bleChars[1].hexValue;
+    page += "'></div><button type='submit'>Update BLE</button></form><h2>API Endpoints</h2><ul><li><strong><a href='/api/status' target='_blank'>/api/status</a></strong> - Current LED state, counter, uptime, Wi-Fi IP, BLE name</li><li><strong>/api/toggle</strong> (POST) - Toggle LED on/off</li><li><strong><a href='/api/info' target='_blank'>/api/info</a></strong> - Build info, memory usage, feature flags</li><li><strong><a href='/api/wifi' target='_blank'>/api/wifi</a></strong> - Wi-Fi connection status (SSID, IP, RSSI)</li><li><strong><a href='/api/wifi/scan' target='_blank'>/api/wifi/scan</a></strong> - Scan for available Wi-Fi networks</li><li><strong><a href='/api/ble/status' target='_blank'>/api/ble/status</a></strong> - BLE configuration and characteristic values</li><li><strong>/api/ble/config</strong> (POST) - Update BLE name and characteristics</li></ul><script>function stringToHex(str){let hex='';for(let i=0;i<str.length;i++){hex+=str.charCodeAt(i).toString(16).padStart(2,'0');}return hex;}function updateHex(charNum){let stringInput=document.getElementById('char'+charNum+'_string');let hexDisplay=document.getElementById('char'+charNum+'_hex_display');let hexHidden=document.getElementById('char'+charNum+'_hex');let hexValue=stringToHex(stringInput.value);hexDisplay.textContent=hexValue;hexHidden.value=hexValue;}async function refresh(){let r=await fetch('/api/status');let j=await r.json();document.getElementById('stats').innerText=JSON.stringify(j,null,2);}async function toggle(){await fetch('/api/toggle',{method:'POST'});refresh();}refresh();setInterval(refresh,3000);</script></body></html>";
   return page;
 }
 static void setupWeb(); // fwd
@@ -234,25 +477,43 @@ static void setupWeb(); // fwd
 // BLE Advertising
 // -----------------------------------------------------------------------------
 #ifdef USE_BLE_ADV
-#include <NimBLEDevice.h>
-#ifndef BLE_ADV_NAME
-#define BLE_ADV_NAME "" // dynamic by default
-#endif
-static NimBLEAdvertising* pAdvertising = nullptr;
-char gBleName[20];
-static unsigned long lastBleUpdate = 0;
+
 static void setupBle() {
-  if (strlen(BLE_ADV_NAME)) { strncpy(gBleName,BLE_ADV_NAME,sizeof(gBleName)-1); gBleName[sizeof(gBleName)-1]='\0'; }
-  else { uint64_t mac=ESP.getEfuseMac(); snprintf(gBleName,sizeof(gBleName),"ESP32WROOM%04X", (uint16_t)(mac & 0xFFFF)); }
-  NimBLEDevice::init(gBleName);
+  NimBLEDevice::init(bleName.c_str());
+  delay(1000); // wait for BLE host to be ready
+
+  NimBLEServer* pServer = NimBLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  Serial.println("[BLE] Server callbacks registered for detailed logging");
+
+  strncpy(gBleName, bleName.c_str(), sizeof(gBleName) - 1);
+  gBleName[sizeof(gBleName) - 1] = '\0';
+
+  pService = pServer->createService(NimBLEUUID(bleServiceUuid.c_str()));
+  pChar1 = pService->createCharacteristic(NimBLEUUID(bleChars[0].uuid.c_str()), NIMBLE_PROPERTY::READ);
+  pChar1->setValue(hexStringToBytes(bleChars[0].hexValue));
+  pChar2 = pService->createCharacteristic(NimBLEUUID(bleChars[1].uuid.c_str()), NIMBLE_PROPERTY::READ);
+  pChar2->setValue(hexStringToBytes(bleChars[1].hexValue));
+  pService->start();
+
   pAdvertising = NimBLEDevice::getAdvertising();
-  NimBLEAdvertisementData adv; adv.setName(gBleName); adv.setManufacturerData(std::string("LED=") + (ledState?"1":"0"));
-  pAdvertising->setAdvertisementData(adv); pAdvertising->start();
+  NimBLEAdvertisementData adv;
+  adv.setName(gBleName);
+  adv.setManufacturerData(std::string("LED=") + (ledState ? "1" : "0"));
+  pAdvertising->setAdvertisementData(adv);
+  pAdvertising->start();
   Serial.printf("BLE advertising name=%s\n", gBleName);
 }
+
 static void updateBleAdv() {
-  if(!pAdvertising) return; unsigned long now=millis(); if(now-lastBleUpdate<2000) return; lastBleUpdate=now;
-  NimBLEAdvertisementData adv; adv.setName(gBleName); adv.setManufacturerData(std::string("LED=") + (ledState?"1":"0")); pAdvertising->setAdvertisementData(adv);
+  if(!pAdvertising) return;
+  unsigned long now = millis();
+  if(now - lastBleUpdate < 2000) return;
+  lastBleUpdate = now;
+  NimBLEAdvertisementData adv;
+  adv.setName(gBleName);
+  adv.setManufacturerData(std::string("LED=") + (ledState ? "1" : "0"));
+  pAdvertising->setAdvertisementData(adv);
 }
 #endif
 
@@ -260,7 +521,7 @@ static void updateBleAdv() {
 // OLED Panels (must follow BLE so gBleName exists)
 // -----------------------------------------------------------------------------
 #ifdef USE_OLED
-enum OledPanel: uint8_t { PANEL_BUILD=0, PANEL_UPTIME, PANEL_WIFI, PANEL_BLE, PANEL_COUNT };
+enum OledPanel: uint8_t { PANEL_BUILD=0, PANEL_UPTIME, PANEL_WIFI, PANEL_BLE, PANEL_BLE_CHAR, PANEL_COUNT };
 static OledPanel currentPanel = PANEL_BUILD; static unsigned long lastPanelSwitch=0; static const unsigned long panelIntervalMs=4000;
 static void oledShowPanel(OledPanel p) {
   switch(p){
@@ -288,6 +549,15 @@ static void oledShowPanel(OledPanel p) {
     case PANEL_BLE:{
 #ifdef USE_BLE_ADV
       oledPrintCentered("BLE", gBleName);
+#else
+      oledPrintCentered("BLE","disabled");
+#endif
+      break; }
+    case PANEL_BLE_CHAR:{
+#ifdef USE_BLE_ADV
+      String ascii1 = hexStringToAscii(bleChars[0].hexValue);
+      String ascii2 = hexStringToAscii(bleChars[1].hexValue);
+      oledPrintCentered("BLE Chars", ascii1 + " | " + ascii2);
 #else
       oledPrintCentered("BLE","disabled");
 #endif
@@ -367,6 +637,34 @@ static void setupWeb(){ if(webStarted) return; Serial.println("Starting Async We
     json += '}';
     req->send(200,"application/json",json);
   });
+  server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *req){
+    String json = "{\"networks\":[";
+#ifdef USE_WIFI
+    int n = WiFi.scanNetworks();
+    if (n > 0) {
+      for (int i = 0; i < n; ++i) {
+        if (i > 0) json += ",";
+        json += "{";
+        json += "\"ssid\":\"" + WiFi.SSID(i) + "\",";
+        json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
+        json += "\"encryption\":\"";
+        switch (WiFi.encryptionType(i)) {
+          case WIFI_AUTH_OPEN: json += "Open"; break;
+          case WIFI_AUTH_WEP: json += "WEP"; break;
+          case WIFI_AUTH_WPA_PSK: json += "WPA"; break;
+          case WIFI_AUTH_WPA2_PSK: json += "WPA2"; break;
+          case WIFI_AUTH_WPA_WPA2_PSK: json += "WPA/WPA2"; break;
+          case WIFI_AUTH_WPA2_ENTERPRISE: json += "WPA2-ENT"; break;
+          case WIFI_AUTH_WPA3_PSK: json += "WPA3"; break;
+          default: json += "Unknown"; break;
+        }
+        json += "\"}";
+      }
+    }
+#endif
+    json += "],\"count\":" + String(n) + "}";
+    req->send(200, "application/json", json);
+  });
   server.on("/api/wifi", HTTP_GET, [](AsyncWebServerRequest *req){
     String json="{";
 #ifdef USE_WIFI
@@ -384,6 +682,72 @@ static void setupWeb(){ if(webStarted) return; Serial.println("Starting Async We
     json += '}';
     req->send(200,"application/json",json);
   });
+  server.on("/api/ble/status", HTTP_GET, [](AsyncWebServerRequest *req){
+#ifdef USE_BLE_ADV
+    String json = "{";
+    json += "\"ble_name\":\"" + String(gBleName) + "\",";
+    json += "\"service_uuid\":\"" + bleServiceUuid + "\",";
+    json += "\"char1\":{";
+    json += "\"uuid\":\"" + bleChars[0].uuid + "\",";
+    json += "\"hex_value\":\"" + bleChars[0].hexValue + "\",";
+    json += "\"ascii_value\":\"" + hexStringToAscii(bleChars[0].hexValue) + "\"";
+    json += "},";
+    json += "\"char2\":{";
+    json += "\"uuid\":\"" + bleChars[1].uuid + "\",";
+    json += "\"hex_value\":\"" + bleChars[1].hexValue + "\",";
+    json += "\"ascii_value\":\"" + hexStringToAscii(bleChars[1].hexValue) + "\"";
+    json += "}";
+    json += "}";
+    req->send(200, "application/json", json);
+#else
+    req->send(400, "application/json", "{\"error\":\"BLE not enabled\"}");
+#endif
+  });
+  server.on("/api/ble/config", HTTP_POST, [](AsyncWebServerRequest *req){
+#ifdef USE_BLE_ADV
+    if (req->hasParam("ble_name", true)) {
+      bleName = req->getParam("ble_name", true)->value();
+    }
+    if (req->hasParam("service_uuid", true)) {
+      bleServiceUuid = req->getParam("service_uuid", true)->value();
+    }
+    if (req->hasParam("char1_uuid", true)) {
+      bleChars[0].uuid = req->getParam("char1_uuid", true)->value();
+    }
+    if (req->hasParam("char1_hex", true)) {
+      bleChars[0].hexValue = req->getParam("char1_hex", true)->value();
+    }
+    if (req->hasParam("char2_uuid", true)) {
+      bleChars[1].uuid = req->getParam("char2_uuid", true)->value();
+    }
+    if (req->hasParam("char2_hex", true)) {
+      bleChars[1].hexValue = req->getParam("char2_hex", true)->value();
+    }
+    // Restart BLE with new config
+    bleNeedsRestart = true;
+
+    // Send HTML response with return button
+    String response = "<!DOCTYPE html><html><head><meta charset='utf-8'><title>BLE Config Updated</title>";
+    response += "<style>body{font-family:Arial;margin:2em;text-align:center;}";
+    response += ".success{color:#28a745;font-size:1.2em;margin:1em 0;}";
+    response += "button{padding:0.8em 1.5em;font-size:1.1em;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;}";
+    response += "button:hover{background:#0056b3;}</style></head><body>";
+    response += "<h1>✓ BLE Configuration Updated</h1>";
+    response += "<div class='success'>BLE settings have been successfully updated!</div>";
+    response += "<p>Updated parameters:</p><ul style='text-align:left;display:inline-block;'>";
+    response += "<li><strong>BLE Name:</strong> " + bleName + "</li>";
+    response += "<li><strong>Service UUID:</strong> " + bleServiceUuid + "</li>";
+    response += "<li><strong>Char1 UUID:</strong> " + bleChars[0].uuid + "</li>";
+    response += "<li><strong>Char1 Hex:</strong> " + bleChars[0].hexValue + "</li>";
+    response += "<li><strong>Char2 UUID:</strong> " + bleChars[1].uuid + "</li>";
+    response += "<li><strong>Char2 Hex:</strong> " + bleChars[1].hexValue + "</li></ul>";
+    response += "<button onclick=\"window.location.href='/'\">Return to Main Page</button>";
+    response += "</body></html>";
+    req->send(200, "text/html", response);
+#else
+    req->send(400, "text/plain", "BLE not enabled");
+#endif
+  });
   server.onNotFound([](AsyncWebServerRequest *r){ r->send(404,"text/plain","Not found"); });
   server.begin(); webStarted=true; Serial.println("Async Web server started");
 }
@@ -395,6 +759,54 @@ static void setupWeb(){ if(webStarted) return; Serial.println("Starting Async We
 void setup() {
   Serial.begin(115200); while(!Serial && millis()<2000) {}
   Serial.printf("Boot build %s %s\n", __DATE__, __TIME__);
+
+  // Display help text on new serial connection
+  Serial.println();
+  Serial.println("=== ESP32 Blink Device ===");
+  Serial.println("Serial monitor connected successfully!");
+  Serial.println();
+  Serial.println("Available commands:");
+  Serial.println("  help / ?            -> show this help text");
+  Serial.println("  quit / disconnect   -> show serial monitor exit instructions");
+#ifdef ALLOW_WIFI_PROVISION
+  Serial.println("  wifi/SSID/PASSWORD  -> set WiFi credentials");
+  Serial.println("  wifi/clear          -> clear stored credentials");
+  Serial.println("  wifi/status         -> show connection status");
+  Serial.println("  wifi/scan           -> scan for networks");
+#endif
+#ifdef USE_BLE_ADV
+  Serial.println("  ble/name NAME       -> set BLE device name");
+  Serial.println("  ble/service UUID    -> set service UUID");
+  Serial.println("  ble/status          -> show BLE configuration");
+#endif
+  Serial.println();
+  Serial.println("Device features:");
+#ifdef USE_WIFI
+  Serial.println("  ✓ WiFi networking");
+#endif
+#ifdef USE_BLE_ADV
+  Serial.println("  ✓ Bluetooth LE advertising");
+#endif
+#ifdef USE_OLED
+  Serial.println("  ✓ OLED display");
+#endif
+#ifdef USE_ASYNC_WEB
+  Serial.println("  ✓ Web interface");
+#endif
+  Serial.println("  ✓ LED control");
+  Serial.println();
+
+  // Set BLE name with MAC suffix
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  String macStr = "";
+  for(int i = 0; i < 6; i++) {
+    if(mac[i] < 16) macStr += "0";
+    macStr += String(mac[i], HEX);
+  }
+  macStr.toUpperCase();
+  String suffix = macStr.substring(6); // last 6 characters
+  bleName += suffix;
 
 #ifdef FIND_LED
   activeLedPin = detectLedPin();
@@ -410,11 +822,11 @@ void setup() {
   tryConnectWifi();
 #if defined(ALLOW_WIFI_PROVISION)
   Serial.println();
-  Serial.println("Provisioning commands:");
-  Serial.println("  wifi:SSID:PASSWORD  -> set / connect (password masked)");
-  Serial.println("  wifi:clear           -> erase stored credentials");
+  Serial.println("Provisioning commands: (Enter 'help' or '?' for full list)");
+  Serial.println("  wifi/SSID/PASSWORD  -> set / connect (password masked)");
+  Serial.println("  wifi/clear           -> erase stored credentials");
   Serial.println();
-  Serial.print("wifi> ");
+  Serial.print("esp> ");
 #endif
 #endif
 
@@ -435,7 +847,7 @@ void loop() {
   unsigned long now=millis();
   if(now-lastToggle>=intervalMs){ lastToggle=now; ledState=!ledState; digitalWrite(activeLedPin, ledState?HIGH:LOW); counter1++; }
 #if defined(USE_WIFI) && defined(ALLOW_WIFI_PROVISION)
-  handleProvisioning();
+  if (Serial.available()) handleProvisioning();
   if(!wifiConnected && wifiSsid.length() && wifiPass.length() && (now-lastWifiRetry>2000)) { lastWifiRetry=now; tryConnectWifi(); }
 #endif
 #ifdef USE_WIFI
@@ -446,6 +858,12 @@ void loop() {
 #endif
 #ifdef USE_BLE_ADV
   updateBleAdv();
+  if (bleNeedsRestart) {
+    NimBLEDevice::deinit();
+    delay(100);
+    setupBle();
+    bleNeedsRestart = false;
+  }
 #endif
 #ifdef USE_OLED
   oledRotatePanels();
