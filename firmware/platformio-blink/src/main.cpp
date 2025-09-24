@@ -1,6 +1,10 @@
-// Clean reconstructed firmware implementing: LED blink & auto-detect, Wi-Fi (NVS + serial provision),
-// Async web server with /api/status /api/toggle /api/info, BLE advertising (dynamic name),
-// SSD1306 OLED rotating diagnostic panels.
+// ESP32 firmware
+
+/* Features implemented:
+- LED blink, Wi-Fi (NVS + serial provision), Bluetooth LE advertising, BLE scan, I2C scan
+- Async web server with /api/status /api/toggle /api/info, BLE advertising (dynamic name),
+- SSD1306 OLED rotating diagnostic panels.
+*/
 
 #include <Arduino.h>
 
@@ -8,12 +12,14 @@
 // Configuration defaults
 // -----------------------------------------------------------------------------
 #define BLE_PREFIX "RAINpark"
+#define DEBUG_FLAG false
+
 #ifndef LED_PIN
 #define LED_PIN 2
 #endif
 
 // -----------------------------------------------------------------------------
-// LED detection (optional)
+// I2C detection (optional)
 // -----------------------------------------------------------------------------
 static int activeLedPin = LED_PIN;
 static bool ledState = false;
@@ -21,18 +27,85 @@ static unsigned long lastToggle = 0;
 static const unsigned long intervalMs = 1000; // blink
 static uint32_t counter1 = 0; // toggles counter
 
-#ifdef FIND_LED
-static int testPins[] = {2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33};
-static int detectLedPin() {
-  Serial.println("[FIND_LED] Scanning pins for plausible LED...");
-  for (int p: testPins) {
-    pinMode(p, OUTPUT);
-    digitalWrite(p, HIGH); delay(15);
-    digitalWrite(p, LOW);  delay(15);
+#ifdef USE_I2C_LED
+#include <Wire.h>
+#include <Adafruit_LEDBackpack.h>
+#ifndef I2C_LED_ADDR
+#define I2C_LED_ADDR 0x70
+#endif
+static Adafruit_7segment matrix = Adafruit_7segment();
+static bool i2cLedInitialized = false;
+static unsigned long lastI2cLedUpdate = 0;
+static const unsigned long i2cLedIntervalMs = 1000; // Update every second
+
+static void initI2cLed() {
+  if (!i2cLedInitialized) {
+    matrix.begin(I2C_LED_ADDR);
+    matrix.setBrightness(8); // Medium brightness (0-15)
+    i2cLedInitialized = true;
+    Serial.printf("[i2c_led] Initialized seven-segment display at 0x%02X\n", I2C_LED_ADDR);
   }
-  // Simple heuristic: just return default; real detection would sample current draw / brightness sensor
-  Serial.println("[FIND_LED] Using default LED_PIN after scan.");
-  return LED_PIN;
+}
+
+static void updateI2cLedUptime() {
+  if (!i2cLedInitialized) return;
+
+  unsigned long now = millis();
+  if (now - lastI2cLedUpdate < i2cLedIntervalMs) return;
+  lastI2cLedUpdate = now;
+
+  // Calculate uptime in minutes and seconds
+  unsigned long totalSeconds = now / 1000;
+  unsigned long minutes = (totalSeconds / 60) % 100; // Limit to 99 minutes max for display
+  unsigned long seconds = totalSeconds % 60;
+
+  // Always use individual digit control for consistent formatting
+  matrix.writeDigitNum(0, minutes / 10);     // First digit of minutes (0-9)
+  matrix.writeDigitNum(1, minutes % 10);     // Second digit of minutes (0-9)
+  matrix.writeDigitNum(3, seconds / 10);     // First digit of seconds (0-5)
+  matrix.writeDigitNum(4, seconds % 10);     // Second digit of seconds (0-9)
+  matrix.drawColon(true); // Enable colon separator
+  matrix.writeDisplay();
+
+  if (DEBUG_FLAG) {
+    Serial.printf("[i2c_led] Uptime: %02lu:%02lu\n", minutes, seconds);
+  }
+}
+#endif
+
+#ifdef FIND_I2C
+#include <Wire.h>
+static void scanI2C() {
+  byte r, address;
+  int nDevices = 0;
+
+  Serial.println("[i2c] Scanning I2C bus...");
+  Wire.begin(/* SDA */ 21, /* SCL */ 22, 400000); // 400 kHz OK for short QT cables
+
+  for(address = 1; address < 127; address++ ) {
+    // The i2c_scanner uses the return value of
+    // the Write.endTransmisstion to see if
+    // a device did acknowledge to the address.
+    Wire.beginTransmission(address);
+    r = Wire.endTransmission();
+    if (r == 0) {
+      Serial.print("[i2c] I2C device found: address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.println(address,HEX);
+      nDevices++;
+    }
+    else if (r==4) {
+      Serial.print("[i2c] Unknown error: address 0x");
+      if (address<16)
+        Serial.print("0");
+      Serial.println(address,HEX);
+    }
+  }
+  if (nDevices == 0)
+    Serial.println("[i2c] No I2C devices found");
+  else
+    Serial.printf("[i2c] Scan complete. Found %d device(s)\n", nDevices);
 }
 #endif
 
@@ -56,17 +129,29 @@ static int detectLedPin() {
 #define OLED_HEIGHT 64
 #endif
 Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
-static void oledPrintCentered(const String &l1, const String &l2 = "", uint8_t size = 1) {
+static void oledPrintCentered(const String &l1, const String &l2 = "", uint8_t size = 1, const String &l3 = "") {
   display.clearDisplay(); display.setTextSize(size);
   display.setTextColor(SSD1306_WHITE);
 //  display.setFont(&FreeSansBold9pt7b);  // too big for 2-line 128x64 display
   display.setFont(&Arial_Unicode7pt7b);  // ".pio/libdeps/esp32dev/Adafruit GFX Library/fontconvert/fontconvert" /Library/Fonts/Arial\ Unicode.ttf 7 > .pio/libdeps/esp32dev/Adafruit\ GFX\ Library/Fonts/Arial_Unicode7pt7b.h
   int16_t x,y; uint16_t w,h;
-//  int y1 = 16 - (size-1)*8;
-  int y1 = 12 - (size-1)*8;  // the Y offset changes per font size
-  int y2 = 32 + (size-1)*8;
+
+  // Adjust Y positions based on number of lines
+  int y1, y2, y3;
+  if (l3.length()) {
+    // Three lines: distribute evenly across 64 pixel height
+    y1 = 10 - (size-1)*4;   // Top line
+    y2 = 28 - (size-1)*2;  // Middle line
+    y3 = 48 + (size-1)*2;  // Bottom line
+  } else {
+    // Two lines: use original positioning
+    y1 = 12 - (size-1)*8;
+    y2 = 32 + (size-1)*8;
+  }
+
   if (l1.length()) { display.getTextBounds(l1,0,0,&x,&y,&w,&h); display.setCursor((OLED_WIDTH-w)/2, y1); display.println(l1);}
   if (l2.length()) { display.getTextBounds(l2,0,0,&x,&y,&w,&h); display.setCursor((OLED_WIDTH-w)/2, y2); display.println(l2);}
+  if (l3.length()) { display.getTextBounds(l3,0,0,&x,&y,&w,&h); display.setCursor((OLED_WIDTH-w)/2, y3); display.println(l3);}
   display.display();
 }
 #endif
@@ -76,6 +161,9 @@ static void oledPrintCentered(const String &l1, const String &l2 = "", uint8_t s
 // -----------------------------------------------------------------------------
 #ifdef USE_BLE_ADV
 #include <NimBLEDevice.h>
+#include <NimBLEScan.h>
+#include <NimBLEAdvertisedDevice.h>
+#include <NimBLEUtils.h>
 #ifndef BLE_ADV_NAME
 #define BLE_ADV_NAME "" // dynamic by default
 #endif
@@ -217,6 +305,166 @@ static void tryConnectWifi() {
   }
 }
 
+// Compact build timestamp helper function
+static String getCompactBuildTime() {
+  // Parse __DATE__ (format: "Jan 19 2025") and __TIME__ (format: "12:34:56")
+  const char* date = __DATE__;
+  const char* time = __TIME__;
+
+  // Month name to number mapping
+  const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  int month = (strstr(months, date) - months) / 3 + 1;
+
+  // Extract day, year from __DATE__
+  int day = atoi(date + 4);
+  int year = atoi(date + 7);
+
+  // Extract hour, minute from __TIME__
+  int hour = atoi(time);
+  int minute = atoi(time + 3);
+
+  // Format as YYMM.hhmm
+  char compact[12];
+  snprintf(compact, sizeof(compact), "%02d%02d.%02d%02d",
+           year % 100, month, hour, minute);
+
+  return String(compact);
+}
+
+static String getHumanBuildTime() {
+  // Parse __DATE__ (format: "Jan 19 2025") and __TIME__ (format: "12:34:56")
+  const char* date = __DATE__;
+  const char* time = __TIME__;
+
+  // Month name mapping for human-readable format
+  const char* monthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+
+  // Safe month index calculation with bounds check
+  const char* monthPtr = strstr(months, date);
+  int monthIndex = 0;
+  if (monthPtr != nullptr) {
+    monthIndex = (monthPtr - months) / 3;
+    if (monthIndex < 0 || monthIndex >= 12) {
+      monthIndex = 0; // Default to January if out of bounds
+    }
+  }
+
+  // Extract day, year from __DATE__
+  int day = atoi(date + 4);
+  int year = atoi(date + 7);
+
+  // Extract time components from __TIME__
+  int hour = atoi(time);
+  int minute = atoi(time + 3);
+  int second = atoi(time + 6);
+
+  // old Format: "Jan 19, 2025 at 12:34:56"
+  // new Format: "20250119 12:34:56"
+  char human[64];
+  snprintf(human, sizeof(human), "%04d%02d%02d %02d:%02d:%02d",
+           year, monthIndex + 1, day,
+           hour, minute, second);
+
+  return String(human);
+}
+
+// BLE scan helper function
+#ifdef USE_BLE_ADV
+static NimBLEScan* pBLEScan = nullptr;
+
+static void performBleScan(int scanDuration = 5) { // seconds
+  Serial.printf("\n[ble] Starting BLE scan for %d seconds...\n", scanDuration);
+
+  if (!pBLEScan) {
+    pBLEScan = NimBLEDevice::getScan();
+    pBLEScan->setActiveScan(true); // Active scan uses more power but gets more info
+    pBLEScan->setInterval(100);
+    pBLEScan->setWindow(99);  // Less or equal to interval
+  }
+
+  Serial.printf("[ble] Scanning for %d seconds...\n", scanDuration);
+  pBLEScan->start(scanDuration * 1000, false);
+  delay(scanDuration * 1000);  // check scan status AFTER scanDuration seconds
+  NimBLEScanResults foundDevices = pBLEScan->getResults();
+  Serial.printf("[ble] Scan complete. Found %d devices:\n", foundDevices.getCount());
+
+  // Print summary of found devices
+  for (int i = 0; i < foundDevices.getCount(); i++) {
+    const NimBLEAdvertisedDevice* device = foundDevices.getDevice(i);
+    Serial.printf("  %d: %s (RSSI: %d)\n",
+                  i + 1,
+                  device->haveName() ? device->getName().c_str() : "Unknown",
+                  device->getRSSI());
+
+    // Print detailed info
+    Serial.printf("[BLE] Device %d: Address=%s", i + 1, device->getAddress().toString().c_str());
+    if (device->haveName()) {
+      Serial.printf(" Name=%s", device->getName().c_str());
+    }
+    if (device->haveServiceUUID()) {
+      Serial.printf(" ServiceUUID=%s", device->getServiceUUID().toString().c_str());
+    }
+    if (device->haveManufacturerData()) {
+      std::string manufacturerData = device->getManufacturerData();
+      Serial.printf(" MfrData=");
+      for (int j = 0; j < manufacturerData.length(); j++) {
+        Serial.printf("%02X ", (uint8_t)manufacturerData[j]);
+      }
+    }
+    Serial.printf(" RSSI=%d\n", device->getRSSI());
+  }
+
+  pBLEScan->clearResults(); // Free memory
+}
+#endif
+
+// Consolidated WiFi scan helper functions
+static String getEncryptionTypeString(wifi_auth_mode_t encType) {
+  switch (encType) {
+    case WIFI_AUTH_OPEN: return "Open";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-ENT";
+    case WIFI_AUTH_WPA3_PSK: return "WPA3";
+    default: return "Unknown";
+  }
+}
+
+static void performWifiScanSerial() {
+  Serial.println("[wifi] Scanning for networks...");
+  int n = WiFi.scanNetworks();
+  if (n == 0) {
+    Serial.println("[wifi] No networks found");
+  } else {
+    Serial.printf("[wifi] Found %d networks:\n", n);
+    for (int i = 0; i < n; ++i) {
+      String authType = getEncryptionTypeString(WiFi.encryptionType(i));
+      Serial.printf("  %2d: %-20s %3ddBm %s\n", i+1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), authType.c_str());
+    }
+  }
+}
+
+static String performWifiScanJson() {
+  String json = "{\"networks\":[";
+  int n = WiFi.scanNetworks();
+  if (n > 0) {
+    for (int i = 0; i < n; ++i) {
+      if (i > 0) json += ",";
+      json += "{";
+      json += "\"ssid\":\"" + WiFi.SSID(i) + "\",";
+      json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
+      json += "\"encryption\":\"" + getEncryptionTypeString(WiFi.encryptionType(i)) + "\"";
+      json += "}";
+    }
+  }
+  json += "],\"count\":" + String(n) + "}";
+  return json;
+}
+
 static void printHelp() {
   Serial.println();
   Serial.println("Provisioning commands:");
@@ -228,7 +476,11 @@ static void printHelp() {
   Serial.println("  ble/service UUID     -> set service UUID");
   Serial.println("  ble/char1 UUID HEX   -> set char1 UUID and hex value");
   Serial.println("  ble/char2 UUID HEX   -> set char2 UUID and hex value");
+  Serial.println("  ble/scan             -> scan for nearby BLE devices");
   Serial.println("  ble/status           -> show current BLE config");
+#ifdef FIND_I2C
+  Serial.println("  i2c/scan             -> scan for I2C devices");
+#endif
   Serial.println("  exit                 -> exit provisioning mode");
   Serial.println("  quit / disconnect    -> show serial monitor exit instructions");
   Serial.println("  help / ?             -> this help");
@@ -307,27 +559,7 @@ static void handleProvisioning() {
 #endif
       } else if (provBuf.startsWith("wifi/scan")) {
 #ifdef USE_WIFI
-        Serial.println("[wifi] Scanning for networks...");
-        int n = WiFi.scanNetworks();
-        if (n == 0) {
-          Serial.println("[wifi] No networks found");
-        } else {
-          Serial.printf("[wifi] Found %d networks:\n", n);
-          for (int i = 0; i < n; ++i) {
-            String authType = "";
-            switch (WiFi.encryptionType(i)) {
-              case WIFI_AUTH_OPEN: authType = "Open"; break;
-              case WIFI_AUTH_WEP: authType = "WEP"; break;
-              case WIFI_AUTH_WPA_PSK: authType = "WPA"; break;
-              case WIFI_AUTH_WPA2_PSK: authType = "WPA2"; break;
-              case WIFI_AUTH_WPA_WPA2_PSK: authType = "WPA/WPA2"; break;
-              case WIFI_AUTH_WPA2_ENTERPRISE: authType = "WPA2-ENT"; break;
-              case WIFI_AUTH_WPA3_PSK: authType = "WPA3"; break;
-              default: authType = "Unknown"; break;
-            }
-            Serial.printf("  %2d: %-20s %3ddBm %s\n", i+1, WiFi.SSID(i).c_str(), WiFi.RSSI(i), authType.c_str());
-          }
-        }
+        performWifiScanSerial();
 #else
         Serial.println("[wifi] WiFi disabled at build time");
 #endif
@@ -390,6 +622,18 @@ static void handleProvisioning() {
 #else
         Serial.println("[ble] BLE disabled at build time");
 #endif
+      } else if (provBuf.startsWith("ble/scan")) {
+#ifdef USE_BLE_ADV
+        performBleScan();
+#else
+        Serial.println("[ble] BLE disabled at build time");
+#endif
+      } else if (provBuf.startsWith("i2c/scan")) {
+#ifdef FIND_I2C
+        scanI2C();
+#else
+        Serial.println("[i2c] I2C scanning disabled at build time");
+#endif
       } else if (provBuf.startsWith("wifi/clear")) {
 #ifdef USE_WIFI_NVS
         clearCredsNvs();
@@ -445,8 +689,10 @@ static String htmlPage() {
   String toggleButton = ""; // String toggleButton = "<button onclick=toggle()>Toggle LED</button>";
   String title = "ESP32 WROOM";
 
-  String page = "<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + title + "</title><style>body{font-family:Arial;margin:1em;}button{padding:0.6em 1em;font-size:1.1em;} ul{list-style:none;padding:0;} li{margin:0.5em 0;} form label{display:block;margin:0.5em 0;} input[type=text]{width:300px;} .ascii{color:#666;font-style:italic;} .hex-display{color:#007bff;font-family:monospace;margin-left:10px;} .char-group{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:5px;}</style></head><body><h1>" + title + "</h1>"
+  String page = "<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + title + "</title><style>body{font-family:Arial;margin:1em;}button{padding:0.6em 1em;font-size:1.1em;} ul{list-style:none;padding:0;} li{margin:0.5em 0;} form label{display:block;margin:0.5em 0;} input[type=text]{width:300px;} .ascii{color:#666;font-style:italic;} .hex-display{color:#007bff;font-family:monospace;margin-left:10px;} .char-group{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:5px;} .scan-section{border:1px solid #007bff;padding:20px;margin:20px 0;border-radius:8px;background:#f8f9fa;} .device-list{background:white;border:1px solid #ddd;border-radius:4px;padding:10px;margin-top:10px;max-height:300px;overflow-y:auto;} .device-item{padding:8px;border-bottom:1px solid #eee;} .device-item:last-child{border-bottom:none;} .device-name{font-weight:bold;color:#007bff;} .device-address{font-family:monospace;color:#666;font-size:0.9em;} .device-rssi{color:#28a745;font-size:0.9em;} .scan-status{margin:10px 0;font-style:italic;color:#666;} .loading{color:#007bff;} .build-info{color:#666;font-size:0.85em;margin-bottom:1em;font-style:italic;}</style></head><body><h1>" + title + "</h1>"
+        + "<div class='build-info'>Build: " + getHumanBuildTime() + "</div>"
         + statsBlock + toggleButton
+        + "<h2>BLE Scanner</h2><div class='scan-section'><button onclick='scanBleDevices()' id='scanBtn'>Scan for BLE Devices</button><div id='scanStatus' class='scan-status'></div><div id='bleDevices' class='device-list' style='display:none;'></div></div>"
         + "<h2>BLE Configuration</h2><form action='/api/ble/config' method='post'><label>BLE Name: <input type='text' name='ble_name' value='";
   page += bleName;
   page += "'></label><label>Service UUID: <input type='text' name='service_uuid' value='";
@@ -466,8 +712,15 @@ static String htmlPage() {
   page += "'> <span class='hex-display'>Hex: <span id='char2_hex_display'>";
   page += bleChars[1].hexValue;
   page += "\"</span></label><input type='hidden' name='char2_hex' id='char2_hex' value='";
-    page += bleChars[1].hexValue;
-    page += "'></div><button type='submit'>Update BLE</button></form><h2>API Endpoints</h2><ul><li><strong><a href='/api/status' target='_blank'>/api/status</a></strong> - Current LED state, counter, uptime, Wi-Fi IP, BLE name</li><li><strong>/api/toggle</strong> (POST) - Toggle LED on/off</li><li><strong><a href='/api/info' target='_blank'>/api/info</a></strong> - Build info, memory usage, feature flags</li><li><strong><a href='/api/wifi' target='_blank'>/api/wifi</a></strong> - Wi-Fi connection status (SSID, IP, RSSI)</li><li><strong><a href='/api/wifi/scan' target='_blank'>/api/wifi/scan</a></strong> - Scan for available Wi-Fi networks</li><li><strong><a href='/api/ble/status' target='_blank'>/api/ble/status</a></strong> - BLE configuration and characteristic values</li><li><strong>/api/ble/config</strong> (POST) - Update BLE name and characteristics</li></ul><script>function stringToHex(str){let hex='';for(let i=0;i<str.length;i++){hex+=str.charCodeAt(i).toString(16).padStart(2,'0');}return hex;}function updateHex(charNum){let stringInput=document.getElementById('char'+charNum+'_string');let hexDisplay=document.getElementById('char'+charNum+'_hex_display');let hexHidden=document.getElementById('char'+charNum+'_hex');let hexValue=stringToHex(stringInput.value);hexDisplay.textContent=hexValue;hexHidden.value=hexValue;}async function refresh(){let r=await fetch('/api/status');let j=await r.json();document.getElementById('stats').innerText=JSON.stringify(j,null,2);}async function toggle(){await fetch('/api/toggle',{method:'POST'});refresh();}refresh();setInterval(refresh,3000);</script></body></html>";
+  page += bleChars[1].hexValue;
+  page += "'></div><button type='submit'>Update BLE</button></form>";
+  page += "<h2>API Endpoints</h2><ul><li><strong><a href='/api/status' target='_blank'>/api/status</a></strong> - Current LED state, counter, uptime, Wi-Fi IP, BLE name</li>";
+  page += "<li><strong>/api/toggle</strong> (POST) - Toggle LED on/off</li><li><strong><a href='/api/info' target='_blank'>/api/info</a></strong> - Build info, memory usage, feature flags</li>";
+  page += "<li><strong><a href='/api/wifi' target='_blank'>/api/wifi</a></strong> - Wi-Fi connection status (SSID, IP, RSSI)</li><li><strong><a href='/api/wifi/scan' target='_blank'>/api/wifi/scan</a></strong> - Scan for available Wi-Fi networks</li><li><strong><a href='/api/ble/status' target='_blank'>/api/ble/status</a></strong> - BLE configuration and characteristic values</li><li><strong><a href='/api/ble/scan' target='_blank'>/api/ble/scan</a></strong> - Scan for nearby BLE devices</li><li><strong>/api/ble/config</strong> (POST) - Update BLE name and characteristics</li></ul>";
+  page += "<script>function stringToHex(str){let hex='';for(let i=0;i<str.length;i++){hex+=str.charCodeAt(i).toString(16).padStart(2,'0');}return hex;}function updateHex(charNum){let stringInput=document.getElementById('char'+charNum+'_string');let hexDisplay=document.getElementById('char'+charNum+'_hex_display');let hexHidden=document.getElementById('char'+charNum+'_hex');let hexValue=stringToHex(stringInput.value);hexDisplay.textContent=hexValue;hexHidden.value=hexValue;}";
+  page += "async function scanBleDevices(){const scanBtn=document.getElementById('scanBtn');const scanStatus=document.getElementById('scanStatus');const devicesList=document.getElementById('bleDevices');scanBtn.disabled=true;scanBtn.textContent='Scanning...';scanStatus.textContent='Scanning for BLE devices...';scanStatus.className='scan-status loading';devicesList.style.display='none';try{const response=await fetch('/api/ble/scan');const data=await response.json();if(data.devices && data.devices.length>0){let html='<h4>Found '+data.count+' device(s):</h4>';data.devices.forEach(device=>{html+='<div class=\"device-item\">';html+='<div class=\"device-name\">'+device.name+'</div>';html+='<div class=\"device-address\">'+device.address+'</div>';html+='<div class=\"device-rssi\">RSSI: '+device.rssi+' dBm</div>';if(device.serviceUUID){html+='<div style=\"font-size:0.8em;color:#666;\">Service: '+device.serviceUUID+'</div>';}html+='</div>';});devicesList.innerHTML=html;devicesList.style.display='block';scanStatus.textContent='Scan completed successfully.';}else{scanStatus.textContent='No BLE devices found.';devicesList.style.display='none';}}catch(error){scanStatus.textContent='Error scanning for devices: '+error.message;devicesList.style.display='none';}finally{scanBtn.disabled=false;scanBtn.textContent='Scan for BLE Devices';scanStatus.className='scan-status';}}";
+  page += "async function refresh(){let r=await fetch('/api/status');let j=await r.json();document.getElementById('stats').innerText=JSON.stringify(j,null,2);}async function toggle(){await fetch('/api/toggle',{method:'POST'});refresh();}refresh();setInterval(refresh,3000);</script>";
+  page += "</body></html>";
   return page;
 }
 static void setupWeb(); // fwd
@@ -522,43 +775,48 @@ static void updateBleAdv() {
 // OLED Panels (must follow BLE so gBleName exists)
 // -----------------------------------------------------------------------------
 #ifdef USE_OLED
-enum OledPanel: uint8_t { PANEL_BUILD=0, PANEL_UPTIME, PANEL_WIFI, PANEL_BLE, PANEL_BLE_CHAR, PANEL_COUNT };
-static OledPanel currentPanel = PANEL_BUILD; static unsigned long lastPanelSwitch=0; static const unsigned long panelIntervalMs=4000;
+enum OledPanel: uint8_t { PANEL_BUILD=0, PANEL_WIFI, PANEL_BLE, PANEL_COUNT };
+static OledPanel currentPanel = PANEL_BUILD;
+static unsigned long lastPanelSwitch=0; static const unsigned long panelIntervalMs=4000;
 static void oledShowPanel(OledPanel p) {
   switch(p){
     case PANEL_BUILD: { size_t sketch=ESP.getSketchSize(); size_t freeS=ESP.getFreeSketchSpace();
         size_t tot=sketch+freeS; float fp= tot? (sketch*100.f/tot):0.f; uint32_t ht=ESP.getHeapSize();
         uint32_t hf=ESP.getFreeHeap(); float hp=ht?((ht-hf)*100.f/ht):0.f;
-        char l2[22]; snprintf(l2,sizeof(l2),"F%.0f%% H%.0f%%",fp,hp);
-        oledPrintCentered("Build", l2); break; }
-    case PANEL_UPTIME:{ unsigned long ms=millis(); unsigned long s=ms/1000; unsigned d=s/86400; s%=86400;
+        char l3[22]; snprintf(l3,sizeof(l3),"F%.0f%% H%.0f%%",fp,hp);
+
+        unsigned long ms=millis(); unsigned long s=ms/1000; unsigned d=s/86400; s%=86400;
         unsigned h=s/3600; s%=3600; unsigned m=s/60; s%=60; char l1[16]; char l2[22];
-        if(d) snprintf(l1,sizeof(l1),"Up %ud",d); else strncpy(l1,"Uptime",sizeof(l1));
-        snprintf(l2,sizeof(l2),"%02u:%02u:%02lu",h,m,(unsigned long)s); oledPrintCentered(l1,l2); break; }
+        if(d) snprintf(l1,sizeof(l1),"Up: %ud",d);
+        else strncpy(l1,"Uptime: ",sizeof(l1));
+        snprintf(l2,sizeof(l2),"%02u:%02u:%02lu",h,m,(unsigned long)s);
+        // oledPrintCentered(l1,l2);  // just print uptime
+        oledPrintCentered(
+            String(l1) + String(l2),  // uptime
+            l3,  // memory/flash usage
+            1,  // fontsize scale
+            getHumanBuildTime()   // print build date/time
+            // getCompactBuildTime()   // print build time
+          );
+        break;
+      }
     case PANEL_WIFI:{
 #ifdef USE_WIFI
       if (wifiConnected && WiFi.isConnected()) {
         long rssi = WiFi.RSSI();
-        oledPrintCentered("Wi-Fi: " + wifiSsid, WiFi.localIP().toString() + " " + String(rssi) + "dBm", 1);
+        oledPrintCentered("Wi-Fi: " + wifiSsid,WiFi.localIP().toString(), 1, String(rssi) + "dBm");
       } else {
-        oledPrintCentered("Wi-Fi","(none)", 2);
+        oledPrintCentered("Wi-Fi","(none)", 1);
       }
 #else
-      oledPrintCentered("Wi-Fi","disabled", 2);
+      oledPrintCentered("Wi-Fi","disabled", 1);
 #endif
       break; }
     case PANEL_BLE:{
 #ifdef USE_BLE_ADV
-      oledPrintCentered("BLE", gBleName);
-#else
-      oledPrintCentered("BLE","disabled");
-#endif
-      break; }
-    case PANEL_BLE_CHAR:{
-#ifdef USE_BLE_ADV
       String ascii1 = hexStringToAscii(bleChars[0].hexValue);
       String ascii2 = hexStringToAscii(bleChars[1].hexValue);
-      oledPrintCentered("BLE Chars", ascii1 + " | " + ascii2);
+      oledPrintCentered("BLE", String(gBleName), 1, ascii1 + " | " + ascii2);
 #else
       oledPrintCentered("BLE","disabled");
 #endif
@@ -639,32 +897,12 @@ static void setupWeb(){ if(webStarted) return; Serial.println("Starting Async We
     req->send(200,"application/json",json);
   });
   server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *req){
-    String json = "{\"networks\":[";
 #ifdef USE_WIFI
-    int n = WiFi.scanNetworks();
-    if (n > 0) {
-      for (int i = 0; i < n; ++i) {
-        if (i > 0) json += ",";
-        json += "{";
-        json += "\"ssid\":\"" + WiFi.SSID(i) + "\",";
-        json += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
-        json += "\"encryption\":\"";
-        switch (WiFi.encryptionType(i)) {
-          case WIFI_AUTH_OPEN: json += "Open"; break;
-          case WIFI_AUTH_WEP: json += "WEP"; break;
-          case WIFI_AUTH_WPA_PSK: json += "WPA"; break;
-          case WIFI_AUTH_WPA2_PSK: json += "WPA2"; break;
-          case WIFI_AUTH_WPA_WPA2_PSK: json += "WPA/WPA2"; break;
-          case WIFI_AUTH_WPA2_ENTERPRISE: json += "WPA2-ENT"; break;
-          case WIFI_AUTH_WPA3_PSK: json += "WPA3"; break;
-          default: json += "Unknown"; break;
-        }
-        json += "\"}";
-      }
-    }
-#endif
-    json += "],\"count\":" + String(n) + "}";
+    String json = performWifiScanJson();
     req->send(200, "application/json", json);
+#else
+    req->send(400, "application/json", "{\"error\":\"WiFi not enabled\"}");
+#endif
   });
   server.on("/api/wifi", HTTP_GET, [](AsyncWebServerRequest *req){
     String json="{";
@@ -699,6 +937,92 @@ static void setupWeb(){ if(webStarted) return; Serial.println("Starting Async We
     json += "\"ascii_value\":\"" + hexStringToAscii(bleChars[1].hexValue) + "\"";
     json += "}";
     json += "}";
+    req->send(200, "application/json", json);
+#else
+    req->send(400, "application/json", "{\"error\":\"BLE not enabled\"}");
+#endif
+  });
+  server.on("/api/ble/scan", HTTP_GET, [](AsyncWebServerRequest *req){
+#ifdef USE_BLE_ADV
+    Serial.println("[ble] Web API scan started");
+    unsigned long scanStartTime = millis();
+
+    // Start BLE scan (synchronous blocking scan)
+    pBLEScan->setActiveScan(true);
+    pBLEScan->setInterval(100);
+    pBLEScan->setWindow(99);
+
+    // Perform synchronous 10-second scan (this version blocks but works)
+    int scanDuration = 10;
+    Serial.printf("[ble] Scanning for %d seconds...\n", scanDuration);
+    pBLEScan->start(scanDuration, true);  // true = blocking scan
+
+    // Get scan results after blocking scan completes
+    unsigned long scanEndTime = millis();
+    unsigned long actualResponseTime = scanEndTime - scanStartTime;
+
+    NimBLEScanResults foundDevices = pBLEScan->getResults();
+    Serial.printf("[ble] Web API scan completed, found %d devices in %lu ms\n", foundDevices.getCount(), actualResponseTime);
+
+    // Build response as structured data object
+    struct BleDevice {
+      String name;
+      String address;
+      int rssi;
+      String serviceUUID;
+      bool hasServiceUUID;
+    };
+
+    struct BleResponse {
+      BleDevice devices[50]; // Reasonable limit for BLE devices
+      int deviceCount;
+      int requestedScanDuration;
+      unsigned long actualResponseTime;
+      String status;
+    } response;
+
+    // Initialize response structure
+    response.deviceCount = foundDevices.getCount();
+    response.requestedScanDuration = scanDuration;
+    response.actualResponseTime = actualResponseTime;
+    response.status = "success";
+
+    // Populate device data
+    int maxDevices = min(foundDevices.getCount(), 50);
+    for (int i = 0; i < maxDevices; i++) {
+      const NimBLEAdvertisedDevice* device = foundDevices.getDevice(i);
+      response.devices[i].name = device->haveName() ? device->getName().c_str() : "Unknown";
+      response.devices[i].address = device->getAddress().toString().c_str();
+      response.devices[i].rssi = device->getRSSI();
+      response.devices[i].hasServiceUUID = device->haveServiceUUID();
+      if (response.devices[i].hasServiceUUID) {
+        response.devices[i].serviceUUID = device->getServiceUUID().toString().c_str();
+      }
+    }
+
+    // Transform structured response to JSON
+    String json = "{";
+    json += "\"devices\":[";
+    for (int i = 0; i < response.deviceCount && i < 50; i++) {
+      if (i > 0) json += ",";
+      json += "{";
+      json += "\"name\":\"" + response.devices[i].name + "\",";
+      json += "\"address\":\"" + response.devices[i].address + "\",";
+      json += "\"rssi\":" + String(response.devices[i].rssi);
+      if (response.devices[i].hasServiceUUID) {
+        json += ",\"serviceUUID\":\"" + response.devices[i].serviceUUID + "\"";
+      }
+      json += "}";
+    }
+    json += "],";
+    json += "\"count\":" + String(response.deviceCount) + ",";
+    json += "\"metadata\":{";
+    json += "\"requestedScanDuration\":" + String(response.requestedScanDuration) + ",";
+    json += "\"actualResponseTime\":" + String(response.actualResponseTime) + ",";
+    json += "\"status\":\"" + response.status + "\"";
+    json += "}}";
+
+    pBLEScan->clearResults(); // Clear after we've processed them
     req->send(200, "application/json", json);
 #else
     req->send(400, "application/json", "{\"error\":\"BLE not enabled\"}");
@@ -759,7 +1083,7 @@ static void setupWeb(){ if(webStarted) return; Serial.println("Starting Async We
 // -----------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200); while(!Serial && millis()<2000) {}
-  Serial.printf("Boot build %s %s\n", __DATE__, __TIME__);
+  Serial.printf("Boot build: %s\n", getHumanBuildTime().c_str());
 
   // Display help text on new serial connection
   Serial.println();
@@ -780,6 +1104,9 @@ void setup() {
   Serial.println("  ble/service UUID    -> set service UUID");
   Serial.println("  ble/status          -> show BLE configuration");
 #endif
+#ifdef FIND_I2C
+  Serial.println("  i2c/scan            -> scan for I2C devices");
+#endif
   Serial.println();
   Serial.println("Device features:");
 #ifdef USE_WIFI
@@ -790,6 +1117,9 @@ void setup() {
 #endif
 #ifdef USE_OLED
   Serial.println("  ✓ OLED display");
+#endif
+#ifdef USE_I2C_LED
+  Serial.println("  ✓ Seven-segment display");
 #endif
 #ifdef USE_ASYNC_WEB
   Serial.println("  ✓ Web interface");
@@ -842,6 +1172,14 @@ void setup() {
 #ifdef USE_OLED
   oledShowPanel(PANEL_BUILD);
 #endif
+
+#ifdef USE_I2C_LED
+  initI2cLed();
+#endif
+
+#ifdef FIND_I2C
+  scanI2C();
+#endif
 }
 
 void loop() {
@@ -868,6 +1206,9 @@ void loop() {
 #endif
 #ifdef USE_OLED
   oledRotatePanels();
+#endif
+#ifdef USE_I2C_LED
+  updateI2cLedUptime();
 #endif
   delay(5);
 }
