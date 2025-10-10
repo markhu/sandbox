@@ -1,0 +1,11 @@
+# Python dependencies for firmware development projects
+# Install with: pip install -r requirements.txt
+
+# PlatformIO - embedded development platform
+platformio>=6.1.0
+
+# Serial communication utilities (used by show_device_info.sh and debugging)
+pyserial>=3.5
+
+# Bluetooth Low Energy library (used by ble_char.py)
+bleak>=0.20.0
