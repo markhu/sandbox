@@ -29,7 +29,7 @@ char buildID[13]; // yyyyMMddhhmm + null terminator
 
 // Helper function to parse build timestamp into yyyyMMddhhmm format
 void initBuildID() {
-    const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+    const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
     char monthStr[4] = {__DATE__[0], __DATE__[1], __DATE__[2], '\0'};
     int month = 1;
@@ -39,13 +39,13 @@ void initBuildID() {
             break;
         }
     }
-    
-    int year = (__DATE__[7] - '0') * 1000 + (__DATE__[8] - '0') * 100 + 
+
+    int year = (__DATE__[7] - '0') * 1000 + (__DATE__[8] - '0') * 100 +
                (__DATE__[9] - '0') * 10 + (__DATE__[10] - '0');
     int day = ((__DATE__[4] == ' ' ? 0 : __DATE__[4] - '0') * 10) + (__DATE__[5] - '0');
     int hour = (__TIME__[0] - '0') * 10 + (__TIME__[1] - '0');
     int minute = (__TIME__[3] - '0') * 10 + (__TIME__[4] - '0');
-    
+
     snprintf(buildID, sizeof(buildID), "%04d%02d%02d%02d%02d", year, month, day, hour, minute);
 }
 
@@ -68,31 +68,31 @@ void initBuildID() {
 // Function prototypes
 void setupRS485();
 void rs485Transmit(const char* message);
-void rs485Receive();
+size_t rs485Receive();
 void setRS485Mode(bool transmitMode);
 void printDeviceInfo();
 
 void setup() {
     // Initialize build ID first
     initBuildID();
-    
+
     // Initialize USB Serial for debugging first
     Serial.begin(115200);
     while (!Serial && millis() < 3000) {
         ; // Wait for serial port to connect or timeout after 3 seconds
     }
-    
+
     Serial.println();
     Serial.println("========================================");
     Serial.println("RP2350 RS485 Communication");
     Serial.println("========================================");
-    
+
     // Print device identification
     printDeviceInfo();
-    
+
     Serial.println("========================================");
     Serial.println();
-    
+
     // Initialize onboard LED for visual feedback
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);  // Turn on LED to show firmware is running
@@ -114,14 +114,18 @@ void setup() {
 
 void loop() {
     static unsigned long lastTransmitTime = 0;
-    const unsigned long transmitInterval = 2000; // Transmit every 2 seconds
+    static unsigned long lastStatusTime = 0;
+    const unsigned long transmitInterval = 3000; // Transmit every few seconds
+    const unsigned long statusInterval = 5000; // Status update every 5 seconds
     static char deviceName[16] = {0};
-    
+    static unsigned long totalBytesReceived = 0;
+    char statusMessage[128];
+
     // Get device name on first run
     if (deviceName[0] == 0) {
         pico_unique_board_id_t board_id;
         pico_get_unique_board_id(&board_id);
-        snprintf(deviceName, sizeof(deviceName), "RP2350-%02X%02X", 
+        snprintf(deviceName, sizeof(deviceName), "RP2350-%02X%02X",
                  board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES-2],
                  board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES-1]);
     }
@@ -130,13 +134,13 @@ void loop() {
     if (Serial.available() > 0) {
         String command = Serial.readStringUntil('\n');
         command.trim();
-        
+
         if (command.length() > 0) {
             // Blink LED to show activity
             digitalWrite(LED_PIN, LOW);
             delay(100);
             digitalWrite(LED_PIN, HIGH);
-            
+
             // Transmit the user's message via RS485
             char message[128];
             snprintf(message, sizeof(message), "[%s|%s] %s", deviceName, buildID, command.c_str());
@@ -146,6 +150,7 @@ void loop() {
         }
     }
 
+    // Periodic transmission example
     // Periodic transmission example
     if (millis() - lastTransmitTime >= transmitInterval) {
         lastTransmitTime = millis();
@@ -161,13 +166,24 @@ void loop() {
 
         // Transmit via RS485
         rs485Transmit(message);
-        Serial.print("AUTO: ");
+
+        // Combined status and auto-message output
+        Serial.print("STATUS: Total received ");
+        Serial.print(totalBytesReceived);
+        Serial.print(" bytes | AUTO: ");
         Serial.println(message);
     }
 
     // Check for incoming RS485 data
-    rs485Receive();
+    totalBytesReceived += rs485Receive();  // prints out any received data right away in the function
 
+    // Periodic status update
+    if (millis() - lastStatusTime >= statusInterval) {
+        lastStatusTime = millis();
+        Serial.print("STATUS: Total received ");
+        Serial.print(totalBytesReceived);
+        Serial.println(" bytes");
+    }
     delay(10); // Small delay to prevent tight loop
 }
 
@@ -211,20 +227,25 @@ void rs485Transmit(const char* message) {
 }
 
 /**
- * Receive and process RS485 data
- */
-void rs485Receive() {
-    if (RS485_SERIAL.available() > 0) {
-        String receivedData = RS485_SERIAL.readStringUntil('\n');
-        receivedData.trim();
+ /**
+  * Receive and process RS485 data
+  * Returns the number of bytes received
+  */
+ size_t rs485Receive() {
+     if (RS485_SERIAL.available() > 0) {
+         String receivedData = RS485_SERIAL.readStringUntil('\n');
+         receivedData.trim();
 
-        if (receivedData.length() > 0) {
-            Serial.print("RECEIVED: ");
-            Serial.println(receivedData);
-        }
-    }
-}
-
+         if (receivedData.length() > 0) {
+             Serial.print("RECEIVED (");
+             Serial.print(receivedData.length());
+             Serial.print(" bytes): ");
+             Serial.println(receivedData);
+             return receivedData.length();
+         }
+     }
+     return 0;
+ }
 /**
  * Set RS485 transceiver mode
  * @param transmitMode - true for transmit mode, false for receive mode
@@ -244,14 +265,14 @@ void printDeviceInfo() {
     // Get the unique device ID (8 bytes for RP2350)
     pico_unique_board_id_t board_id;
     pico_get_unique_board_id(&board_id);
-    
+
     // Print build timestamp
     Serial.print("Build Time: ");
     Serial.print(BUILD_TIMESTAMP);
     Serial.print(" (");
     Serial.print(buildID);
     Serial.println(")");
-    
+
     // Print unique board ID
     Serial.print("Device ID:  ");
     for (int i = 0; i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES; i++) {
@@ -260,10 +281,10 @@ void printDeviceInfo() {
         if (i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES - 1) Serial.print(":");
     }
     Serial.println();
-    
+
     // Create a short device name from last 2 bytes of ID
     char deviceName[16];
-    snprintf(deviceName, sizeof(deviceName), "RP2350-%02X%02X", 
+    snprintf(deviceName, sizeof(deviceName), "RP2350-%02X%02X",
              board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES-2],
              board_id.id[PICO_UNIQUE_BOARD_ID_SIZE_BYTES-1]);
     Serial.print("Device Name: ");

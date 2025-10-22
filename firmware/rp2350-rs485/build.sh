@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Project configuration
 PROJECT_NAME="RP2350 RS485"
-ENV_NAME="rp2350"
+ENV_NAME=""  # Will be auto-detected
 
 # Function to print colored output
 print_status() {
@@ -67,9 +67,73 @@ check_platformio() {
     fi
 }
 
+# Function to detect connected board
+detect_board() {
+    print_status "Detecting connected RP2350 board..."
+
+    # Check for device in BOOTSEL mode
+    if pio device list 2>/dev/null | grep -q "RP2350"; then
+        local device_info=$(pio device list 2>/dev/null | grep -A 3 "RP2350")
+
+        # Try to identify SparkFun board by USB VID/PID or device name
+        if echo "$device_info" | grep -qi "sparkfun\|1b4f"; then
+            ENV_NAME="sparkfun_thingplus_rp2350"
+            BOARD_NAME="SparkFun RP2350 Thing Plus"
+            print_success "Detected: $BOARD_NAME"
+            return 0
+        fi
+    fi
+
+    # Check for Pico 2W by USB VID/PID (Raspberry Pi's VID is 2e8a)
+    if pio device list 2>/dev/null | grep -qi "2e8a\|raspberry.*pi.*pico.*2"; then
+        ENV_NAME="rpipico2w"
+        BOARD_NAME="Raspberry Pi Pico 2W"
+        print_success "Detected: $BOARD_NAME"
+        return 0
+    fi
+
+    # Fallback: check which board has been previously built
+    if [ -d ".pio/build/sparkfun_thingplus_rp2350" ]; then
+        ENV_NAME="sparkfun_thingplus_rp2350"
+        BOARD_NAME="SparkFun RP2350 Thing Plus (from previous build)"
+        print_warning "No board detected, using: $BOARD_NAME"
+        return 0
+    elif [ -d ".pio/build/rpipico2w" ]; then
+        ENV_NAME="rpipico2w"
+        BOARD_NAME="Raspberry Pi Pico 2W (from previous build)"
+        print_warning "No board detected, using: $BOARD_NAME"
+        return 0
+    fi
+
+    # If no board detected, ask user
+    print_warning "Could not auto-detect board type."
+    echo "Please select your board:"
+    echo "  1) Raspberry Pi Pico 2W"
+    echo "  2) SparkFun RP2350 Thing Plus"
+    read -p "Enter choice (1-2): " -n 1 -r
+    echo ""
+
+    case $REPLY in
+        1)
+            ENV_NAME="rpipico2w"
+            BOARD_NAME="Raspberry Pi Pico 2W"
+            ;;
+        2)
+            ENV_NAME="sparkfun_thingplus_rp2350"
+            BOARD_NAME="SparkFun RP2350 Thing Plus"
+            ;;
+        *)
+            print_error "Invalid selection"
+            exit 1
+            ;;
+    esac
+
+    print_status "Selected: $BOARD_NAME"
+}
+
 # Function to build the project
 build_project() {
-    print_status "Building $PROJECT_NAME..."
+    print_status "Building $PROJECT_NAME for $BOARD_NAME..."
 
     if [ "$VERBOSE" = true ]; then
         pio run -e $ENV_NAME --verbose
@@ -95,7 +159,7 @@ build_project() {
 
 # Function to upload firmware
 upload_firmware() {
-    print_status "Uploading firmware to Pico 2 W..."
+    print_status "Uploading firmware to $BOARD_NAME..."
 
     # Check if a specific port was provided
     if [ -n "$UPLOAD_PORT" ]; then
@@ -107,13 +171,13 @@ upload_firmware() {
     fi
 
     # Instructions for BOOTSEL mode
-    print_warning "Make sure your Pico 2 W is in BOOTSEL mode:"
+    print_warning "Make sure your $BOARD_NAME is in BOOTSEL mode:"
     print_status "1. Hold the BOOTSEL button while connecting USB"
     print_status "2. Or hold BOOTSEL and press RESET if already connected"
-    print_status "3. The Pico should appear as a USB mass storage device"
+    print_status "3. The board should appear as a USB mass storage device"
 
     # Wait for user confirmation
-    read -p "Press Enter when your Pico 2 W is in BOOTSEL mode and ready for upload..."
+    read -p "Press Enter when your board is in BOOTSEL mode and ready for upload..."
 
     if [ "$VERBOSE" = true ]; then
         $UPLOAD_CMD --verbose
@@ -123,11 +187,11 @@ upload_firmware() {
 
     if [ $? -eq 0 ]; then
         print_success "Upload completed successfully!"
-        print_status "Your Pico 2 W should now be running the new firmware."
+        print_status "Your $BOARD_NAME should now be running the new firmware."
     else
         print_error "Upload failed!"
         print_status "Troubleshooting:"
-        print_status "- Ensure the Pico is in BOOTSEL mode"
+        print_status "- Ensure the board is in BOOTSEL mode"
         print_status "- Check USB connection"
         print_status "- Try a different USB cable or port"
         exit 1
@@ -160,9 +224,11 @@ clean_project() {
 # Function to show project info
 show_project_info() {
     print_status "Project: $PROJECT_NAME"
-    print_status "Environment: $ENV_NAME"
+    if [ -n "$ENV_NAME" ]; then
+        print_status "Environment: $ENV_NAME"
+        print_status "Board: $BOARD_NAME"
+    fi
     print_status "Platform: Raspberry Pi (RP2350)"
-    print_status "Board: Pico 2 W"
     print_status "Framework: Arduino"
     echo ""
 }
@@ -200,8 +266,11 @@ main() {
     echo "=================================================="
     echo ""
 
-    show_project_info
     check_platformio
+
+    # Detect board before showing info or executing commands
+    detect_board
+    show_project_info
 
     case $COMMAND in
         "build")

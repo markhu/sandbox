@@ -51,7 +51,7 @@ This project demonstrates how to implement RS485 communication on the RP2350 mic
 
 ### Communication Settings
 
-- **Baud Rate:** 9600 (configurable in [`src/main.cpp`](src/main.cpp:19))
+- **Baud Rate:** 230400 (configurable in [`src/main.cpp`](src/main.cpp:54))
 - **Data Format:** 8N1 (8 data bits, no parity, 1 stop bit)
 - **Mode:** Half-duplex with automatic direction control
 
@@ -114,7 +114,7 @@ The default code transmits a message every 2 seconds and continuously listens fo
 
 ```cpp
 // Transmitted message format
-"Hello from RP2350! Uptime: XXXXX ms"
+"[RP2350-XXXX|yyyyMMddhhmm] Uptime: XXXXX ms"
 ```
 
 ### Customizing the Code
