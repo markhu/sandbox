@@ -9,3 +9,9 @@ pyserial>=3.5
 
 # Bluetooth Low Energy library (used by ble_char.py)
 bleak>=0.20.0
+
+# esptool Espressif chips ROM Bootloader Utility for MicroPython firmware flashing
+esptool>=4.0.4
+
+# mpremote - MicroPython remote control tool for file management and REPL (modern alternative to ampy)
+mpremote>=1.20.0
