@@ -232,14 +232,14 @@ Examples:
     parser.add_argument('device', nargs='?', help='Serial device path (e.g., /dev/cu.usbserial-110, COM1). If not specified, uses cached port from last run.')
     parser.add_argument('baudrate', nargs='?', type=int, default=None,
                        help='Baud rate for serial communication (default: uses cached value or 230400)')
-    parser.add_argument('duration', nargs='?', type=float, default=5.0,
-                       help='Duration in seconds to read data (default: 5.0, ignored in interactive mode)')
+    parser.add_argument('pos_duration', nargs='?', type=float, default=None,
+                       help='Duration in seconds to read data (positional, default: 5.0, ignored in interactive mode)')
     parser.add_argument('-i', '--interactive', action='store_true',
                        help='Enable interactive mode to send commands')
     parser.add_argument('-s', '--send', type=str, metavar='MESSAGE',
                        help='Send a message/command to the serial port and optionally read response')
-    parser.add_argument('-d', '--duration', type=float, dest='send_duration',
-                       help='Duration to read response after sending (use with --send, default: 2.0 seconds)')
+    parser.add_argument('-d', '--duration', '-t', '--timeout', type=float, dest='duration',
+                       help='Duration to read response in seconds (default: 2.0 for --send mode, 5.0 for read mode)')
 
     args = parser.parse_args()
 
@@ -273,15 +273,23 @@ Examples:
     elif baudrate != cached_baudrate:
         # Baudrate changed but port is from cache, still save
         save_cached_port(port, baudrate)
-    duration = args.duration
+
+    # Determine duration: --duration flag takes precedence, then positional, then defaults
+    if args.duration is not None:
+        duration = args.duration
+    elif args.pos_duration is not None:
+        duration = args.pos_duration
+    else:
+        # Default duration depends on mode
+        if args.send:
+            duration = 2.0
+        else:
+            duration = 5.0
 
     print(f"Opening serial port {port} at {baudrate} baud...")
 
-    # Determine response duration for send mode
-    if args.send:
-        send_duration = args.send_duration if args.send_duration is not None else 2.0
-    else:
-        send_duration = 0
+    # Use the same duration for send mode
+    send_duration = duration
 
     try:
         with serial.Serial(port, baudrate, timeout=0.1) as ser:
