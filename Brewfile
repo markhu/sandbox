@@ -3,6 +3,7 @@ tap "homebrew/bundle"
 tap "homebrew/services"
 
 # Binaries: CLI tools and Languages
+brew "bat"           # color-ized cat
 brew "git"           # High-performance version control
 brew "node"          # Includes NPM
 brew "gh"            # GitHub CLI (Required for Copilot-CLI)
@@ -20,6 +21,7 @@ brew "fd"            # A faster, user-friendly alternative to 'find' (the file l
 # Casks: GUI Applications
 cask "visual-studio-code"
 cask "font-fira-code-nerd-font" # Best for ligatures and CLI icons
+cask "hot"   # CPU temperature display in taskbar
 
 # Mac App Store (Optional - requires 'mas' brew)
 # brew "mas"
