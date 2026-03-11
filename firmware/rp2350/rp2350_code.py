@@ -1,36 +1,13 @@
 #!/usr/bin/env python3
 import sys
 
-# Detect if running on RP2350 dev board
-def detect_environment():
-    """Check if running on RP2350 board with CircuitPython"""
-    try:
-        import board
-        import busio
-        import digitalio
-        # Just check for basic CircuitPython modules
-        # Different RP2350 boards may have different pin names
-        return True
-    except ImportError:
-        return False
-
-if not detect_environment():
-    print("Error: This script requires CircuitPython on an RP2350 board.")
-    print()
-    print("To run on your RP2350:")
-    print("  ampy --port /dev/ttyACM0 run rp2350_code.py")
-    print()
-    print("Or copy to board:")
-    print("  ampy --port /dev/ttyACM0 put rp2350_code.py")
-    print()
-    print("To mount the RP2350 filesystem on Linux:")
-    print("  1. Connect the board via USB")
-    print("  2. Identify the device: lsblk | grep -i usb")
-    print("  3. Mount the filesystem: sudo mount /dev/sdX1 /mnt/rp2350")
-    print("  4. Or use auto-mount: udevil mount /dev/sdX1")
-    print()
-    print("Then access files at /mnt/rp2350/ or your mount point")
-    sys.exit(1)
+# Check if running on CircuitPython
+try:
+    from rp2350_helpers import detect_circuitpython
+    detect_circuitpython(called_by="rp2350_code.py")
+except ImportError:
+    # Running on CircuitPython, helper module not available
+    pass
 
 import board
 import busio

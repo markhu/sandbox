@@ -80,7 +80,7 @@ def list_serial_ports():
     if likely:
         for port in likely:
             desc = port.description or "No description"
-            print(f"  {port.device}  |  {desc}")
+            print(f"  {port.device}  \t|\t  {desc}")
     else:
         print("  None detected")
 
@@ -276,20 +276,20 @@ Examples:
 
     # Determine duration: --duration flag takes precedence, then positional, then defaults
     if args.duration is not None:
-        duration = args.duration
+        timeout = args.duration
     elif args.pos_duration is not None:
-        duration = args.pos_duration
+        timeout = args.pos_duration
     else:
         # Default duration depends on mode
         if args.send:
-            duration = 2.0
+            timeout = 2.0
         else:
-            duration = 5.0
+            timeout = 5.0
 
-    print(f"Opening serial port {port} at {baudrate} baud...")
+    print(f"Opening serial port {port} at {baudrate} baud... --timeout {timeout}")
 
     # Use the same duration for send mode
-    send_duration = duration
+    send_duration = timeout
 
     try:
         with serial.Serial(port, baudrate, timeout=0.1) as ser:
@@ -298,9 +298,11 @@ Examples:
             elif args.send:
                 send_mode(ser, args.send, send_duration)
             else:
-                read_mode(ser, duration)
+                read_mode(ser, timeout)
     except serial.SerialException as e:
-        print(f"Error: {e}")
+        print(f"Error connecting to {port}: {e}")
+        print("\nAvailable serial ports:")
+        list_serial_ports()
         sys.exit(1)
     except KeyboardInterrupt:
         print("\n\nInterrupted by user")
