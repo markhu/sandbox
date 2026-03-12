@@ -254,7 +254,7 @@ Examples:
             print("Error: No device specified and no cached device found.")
             print("Please specify a device path on first use.")
             sys.exit(1)
-        print(f"Using cached device: {port}")
+        print(f"Using cached device: {port}",end='')
         used_cache = True
 
     # Handle baudrate - use cached if not specified, otherwise use default
@@ -262,10 +262,10 @@ Examples:
         baudrate = args.baudrate
     elif cached_baudrate is not None:
         baudrate = cached_baudrate
-        print(f"Using cached baud rate: {baudrate}")
     else:
         baudrate = 230400
-        print(f"Using default baud rate: {baudrate}")
+
+    print(f" @ {baudrate} baud")
 
     # Save the connection details for next time (only update previous if not using cache)
     if not used_cache:
