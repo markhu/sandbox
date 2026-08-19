@@ -201,15 +201,14 @@ def interactive_mode(ser):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1].lower() == 'ls':
-        list_serial_ports()
-        return
-
     parser = argparse.ArgumentParser(
         description="Read serial port data and optionally send commands",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # List available serial ports
+  %(prog)s --list
+
   # Read for 5 seconds and exit (default)
   %(prog)s /dev/cu.usbserial-110
 
@@ -234,6 +233,8 @@ Examples:
                        help='Baud rate for serial communication (default: uses cached value or 230400)')
     parser.add_argument('pos_duration', nargs='?', type=float, default=None,
                        help='Duration in seconds to read data (positional, default: 5.0, ignored in interactive mode)')
+    parser.add_argument('-l', '--list', action='store_true',
+                       help='List available serial ports')
     parser.add_argument('-i', '--interactive', action='store_true',
                        help='Enable interactive mode to send commands')
     parser.add_argument('-s', '--send', type=str, metavar='MESSAGE',
@@ -242,6 +243,10 @@ Examples:
                        help='Duration to read response in seconds (default: 2.0 for --send mode, 5.0 for read mode)')
 
     args = parser.parse_args()
+
+    if args.list:
+        list_serial_ports()
+        return
 
     cached_port, cached_baudrate = load_cached_port()
 
