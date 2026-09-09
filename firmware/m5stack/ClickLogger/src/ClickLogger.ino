@@ -10,28 +10,101 @@
 // detector loop indefinitely.
 //
 // Log format (one line per click event), appended to /clicks.csv:
-//   <ISO8601 timestamp>,<duration_ms>,<peak_amplitude>,<est_freq_hz>,<classification>
+//   <ISO8601 timestamp>,<duration_ms>,<peak_amplitude>,<classification>,<gap_ms>,<burst_label>
 //
-// est_freq_hz is a zero-crossing-rate estimate of the dominant pitch of the
-// click, useful alongside duration for telling apart two acoustically
-// distinct events (e.g. solenoid "open" vs "close").
+// IMPORTANT (2026-09-09): acoustic PRECISION is no longer trusted for
+// classification - duration, frequency, and every other acoustic feature
+// tried have never reliably distinguished open vs. close (see HANDOFF.md's
+// "ruled out" section, and the 2026-09-09 decision to fully deprioritize
+// this). The amplitude-threshold peak detector is kept purely as a
+// TRIGGER ("something clicked/snapped/popped/tapped - go sample the
+// TMAG5273 now"); duration_ms/peak_amplitude are logged only as raw
+// diagnostic context, not as classification input. The old zero-crossing-
+// rate frequency estimate and duration-based acoustic guess digit have
+// been removed entirely - full classification authority now belongs to
+// the TMAG5273 nearest-centroid classifier (see TMAGCAL) and its
+// no-correlation ("NC") flagging, which already existed for exactly this
+// purpose (reject spurious non-solenoid triggers like finger snaps).
 //
-// classification is a 2-character diagnostic indicator "<timing><acoustic>":
+// gap_ms is the millisecond-precision time since the previous click event
+// (via millis() - the same value the timing-based prediction is computed
+// from), or "NA" for the first event since boot. Use THIS, not deltas
+// between consecutive rows' ISO timestamps, when measuring short
+// inter-click gaps (e.g. staggered master-valve/station-valve firing) -
+// the ISO timestamp only has whole-SECOND resolution (from the RTC), so
+// timestamp-delta math is only accurate to +/-1s and can't reliably tell a
+// 1-second gap from a 2-second one.
+//
+// burst_label groups events that fired close together (<BURST_GAP_MS
+// apart) as one "burst" - e.g. a master valve + station valve on the same
+// controller firing ~1-2s apart rather than simultaneously. Format is
+// "<O|C><burstSeq>_<position>": 'O'/'C' = this burst is an opening or
+// closing transition; burstSeq is a monotonically-increasing count of
+// bursts seen since the last CYCLESTART/CLEAR (0, 1, 2, ...); position is
+// the 0-based order of this event WITHIN its burst (on the master+station
+// rig tested so far: opening bursts go master(0) then station(1); closing
+// bursts go station(0) then master(1) - see HANDOFF.md).
+//
+// IMPORTANT (multi-station fix, 2026-09-09): burst TYPE (open vs close) is
+// decided by strict alternation - the first burst since the last
+// CYCLESTART/CLEAR is always "open", then it flips every new burst - NOT
+// by comparing the gap since the previous event against a fixed time
+// threshold. This was a real bug on a 3-solenoid rig where two stations
+// ran back-to-back in one program (station A, then station B): the ~18s
+// controller transition between stations was long enough to start a new
+// burst but NOT long enough to cross the old open/close gap threshold, so
+// station B's events got mislabeled as a second "closing" burst and their
+// position (0, 1, ...) collided with station A's own labels, silently
+// corrupting TMAGCAL. Embedding a ever-incrementing burstSeq in the label
+// (rather than resetting position to 0 on every new burst) makes
+// collisions impossible regardless of how many stations/solenoids are
+// chained in one program or how long each inter-station transition is.
+// Run CYCLESTART (or CLEAR) once before each repeated full test cycle so
+// the SAME burstSeq numbers - and hence the SAME labels - recur cycle to
+// cycle, which TMAGCAL depends on to average samples of the same class.
+// A single-valve rig still produces exactly "O0_0"/"C1_0" per cycle.
+// Purely timing-derived - meaningful even without a TMAG5273 attached,
+// and used as the ground-truth label for TMAGCAL when one is.
+//
+// classification is a diagnostic indicator "<timing>" with an optional
+// variable-length TMAG classification field appended once a TMAG5273
+// calibration has completed (see TMAGCAL):
 //   - timing digit: '1' if this click started >TIMING_GAP_THRESHOLD_MS after
 //     the previous one (predicted START of cycle/valve opening - valve is
 //     normally-closed), '0' otherwise (predicted END of cycle/valve
 //     returning closed). This has been 100% consistent across every
 //     physical setup tested so far.
-//   - acoustic digit: classifyClick()'s duration-based guess (see
-//     CLICK_CLASSIFY_MS) - NOT reliably correlated with open/close per
-//     testing so far, logged mainly so we can see, event by event, how
-//     often it agrees/disagrees with the timing prediction.
-//   e.g. "00" = agree (both say open); "01" = disagree (timing says open,
-//   duration-based guess says close).
+//   - tmag field (only present once TMAGCAL has completed): the TMAG5273's
+//     own classification from its auto-calibrated nearest-centroid
+//     classifier (see TMAGCAL) - e.g. "O0_0"/"O0_1"/"C1_0"/"C1_1" on a
+//     staggered multi-solenoid rig, or just "O0_0"/"C1_0" on a
+//     single-valve rig. A second, physically-independent check against
+//     the timing/burst prediction - this is the field that's actually
+//     trustworthy for classification (see 2026-09-09 decision above).
+//     Can also read "NC" ("No Correlation") - this event's magnetic
+//     signature didn't resemble ANY calibrated class closely enough,
+//     which a real solenoid actuation should always do but a finger-snap/
+//     other spurious acoustic trigger (no accompanying magnetic
+//     deviation) would not. NOT rejected/discarded - still fully
+//     logged/counted/displayed, just flagged, so nothing is silently
+//     thrown away.
+//   e.g. "0" = timing predicts open, TMAG not yet calibrated; "0O0_0" =
+//   timing predicts open, TMAG classifies it as the first event of
+//   opening burst 0 too; "1NC" = timing predicts close, but TMAG says
+//   this event doesn't resemble any calibrated class (likely a spurious
+//   non-solenoid trigger, e.g. a finger snap).
 //
 // Serial commands (type into the serial monitor, newline-terminated):
 //   DUMP    - print the full contents of /clicks.csv
-//   CLEAR   - erase the log file
+//   CLEAR   - erase the log file (also resets burst-cycle numbering, see
+//             CYCLESTART)
+//   CYCLESTART - resets burst-cycle numbering only (leaves the log file
+//             alone): the next detected burst becomes burst 0/"opening".
+//             Run this once right before each repeated full test cycle
+//             (e.g. right before triggering a manual multi-station
+//             Program Run) so burst_label values line up cycle to cycle -
+//             see the burst_label doc comment above for why this matters
+//             on multi-station rigs.
 //   STATUS  - print current threshold, click count, free space
 //   THRESH <n> - set the ON threshold (peak amplitude, 0-32767)
 //   SERVE   - temporarily reconnect WiFi and start a small HTTP server so
@@ -43,20 +116,67 @@
 //   PUSHNOW - trigger an auto-push cycle immediately (for testing), instead
 //             of waiting for the next PUSH_INTERVAL_MS
 //   HALLON/HALLOFF - toggle Hall-effect-sensor RESEARCH logging
-//             (experimental, off by default). When on, each CSV row gains 3
-//             extra columns: hall_baseline, hall_min, hall_max - theory
-//             being a DC latching solenoid reverses coil current direction
-//             between open/close, so the magnetic pulse polarity might
-//             reliably distinguish them where acoustic features haven't.
+//             (experimental, off by default). When on, each CSV row gains 1
+//             extra column: hall_triggered (0/1) - whether the external
+//             Grove Hall Effect Unit (M5Stack SKU U084, digital active-LOW
+//             switch output) fired at any point during the click event.
+//             Theory being a DC latching solenoid reverses coil current
+//             direction between open/close, so the magnetic pulse polarity
+//             might reliably distinguish them where acoustic features
+//             haven't - this sensor can only detect ONE specific pole
+//             direction (unlike the old built-in hallRead(), which read a
+//             continuous ADC value), so it may only trigger on one of the
+//             two click types rather than both.
+//   TMAGON/TMAGOFF - toggle TMAG5273 3-axis I2C magnetometer RESEARCH
+//             logging (experimental, off by default; no-ops if the sensor
+//             wasn't detected at boot). When on, each CSV row gains 6 extra
+//             columns: x_min,x_max,y_min,y_max,z_min,z_max - the min/max
+//             field reading (mT) seen per axis during the click event.
+//             Unlike the A3144E (a simple on/off threshold switch), this
+//             gives continuous signed field data per axis, so we can look
+//             for a direction/magnitude signature distinguishing open vs
+//             close, not just a single trigger bit. NOTE: the A3144E
+//             (PIN_HALL_DATA) and the TMAG5273 share the same two physical
+//             Grove Port A pins - they're meant to be swapped in/out one at
+//             a time, not connected simultaneously.
+//   TMAGSTREAM/TMAGSTREAMOFF - continuously prints the TMAG5273's live X/Y/Z
+//             reading to Serial every ~150ms, independent of click
+//             detection - for manual bench positioning (watching field
+//             values change in real time while moving the sensor around
+//             the solenoid or between its resting open/closed states),
+//             analogous to watching the A3144E's onboard LED but with
+//             actual numbers instead of a single trigger threshold.
+//   TMAGCAL <n> - auto-calibrates a TMAG5273-based multi-class classifier
+//             from the next <n> click events (default 8 - enough for ~2
+//             full cycles on a 2-solenoid rig), using burst-derived labels
+//             as ground truth (see burst_label in the log format above).
+//             Rather than hardcoding a specific axis/sign or assuming
+//             exactly 2 classes (open/close) - which would only be valid
+//             for one particular sensor mounting/orientation and a
+//             single-solenoid rig - this computes an empirical MEAN
+//             VECTOR per distinct burst label seen (e.g. "O0"/"O1"/"C0"/
+//             "C1" for a staggered master+station rig), then classifies
+//             future events by NEAREST CENTROID. Generalizes to any
+//             mounting orientation and any number of staggered solenoids
+//             with zero code changes - re-run anytime the sensor gets
+//             repositioned or the rig changes. Needs to see at least 2
+//             distinct classes to succeed (prints a warning and stays
+//             uncalibrated otherwise; prints each class's sample count and
+//             mean vector on success - see STATUS for a summary anytime).
+//             Once calibrated, every logged event gets an extra
+//             classification field (see classification format below) -
+//             RAM-only, resets on reboot like THRESH/HALLON/etc.
 //
-// Finger-snap/noise rejection (always on, independent of HALLON): the Hall
-// sensor is always sampled around each detected event; if it doesn't show
-// enough deviation from the ambient baseline (HALL_ACTIVITY_THRESHOLD) to
-// look like a real solenoid coil pulse, the event is discarded (logged to
-// Serial as "Rejected", but not written to /clicks.csv or counted) rather
-// than polluting the log - handy for e.g. a habitual finger-snap smoke-test
-// on power-up, which sounds loud enough to trigger acoustically but has no
-// magnetic signature.
+// NOTE: the built-in ESP32 Hall sensor (hallRead()) previously used here was
+// removed - it never produced a reliably usable signal (see HANDOFF.md):
+// real click events showed large bidirectional swings that couldn't be
+// pinned to a consistent open/close polarity, and its "finger-snap/noise
+// rejection" filter (comparing deviation-from-baseline to a threshold) was
+// confirmed to also fire on/miss finger snaps just as often as real clicks,
+// making it unreliable as a noise filter too. That whole
+// baseline/deviation-threshold rejection mechanism is gone along with it;
+// there is currently no automatic noise rejection - reimplementing that
+// with the new external switch sensor (if needed) is future work.
 //// Automatic push: every PUSH_INTERVAL_MS (default 5 min, see secrets.h) the
 // board also independently wakes WiFi just long enough to POST the entire
 // current /clicks.csv to PUSH_HOST:PUSH_PORT/PUSH_PATH, clears the log on a
@@ -80,6 +200,7 @@
 #include <time.h>
 #include <SPIFFS.h>
 #include <string.h>
+#include <Wire.h>
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -106,6 +227,19 @@
 #define SAMPLE_RATE 44100
 #define CHUNK_SAMPLES 256  // ~5.8ms per chunk at 44100Hz
 
+// ---------------------------------------------------------------------------
+// External Hall Effect sensor (Grove Port A, M5Stack "Hall Effect Unit"
+// SKU U084 - 3x A3144E Hall switches + 74HC08 AND gate). Digital,
+// active-LOW output: pulled low when a magnetic field of the right
+// polarity/strength is detected in front of the unit, high otherwise. G33
+// is Grove Port A's data pin on the M5StickC Plus (confirmed against
+// M5Stack's own LIMIT/PIR unit examples, which both use pin 33 for Port
+// A's digital signal; G32 is Port A's other pin, unused here).
+// INPUT_PULLUP is harmless/defensive even though the module's own output is
+// push-pull, not open-collector.
+// ---------------------------------------------------------------------------
+#define PIN_HALL_DATA 33
+
 static int16_t audioBuf[CHUNK_SAMPLES];
 
 // ---------------------------------------------------------------------------
@@ -116,9 +250,10 @@ static int16_t audioBuf[CHUNK_SAMPLES];
 // pre-roll, so we catch the true onset before threshold-crossing, plus the
 // event itself) and appends it to /snippets.bin for offline analysis (real
 // FFT, spectrograms, etc. in Python - far richer than anything cheap enough
-// to compute on-device). This is meant to be temporary: once analysis
-// identifies a reliable feature, we port a lightweight version of *that*
-// computation into classifyClick() and can rip this back out.
+// to compute on-device). NOTE (2026-09-09): acoustic precision has been
+// deprioritized entirely (see top-of-file doc comment) - this is now purely
+// a legacy/optional diagnostic, not expected to feed back into
+// classification like it once might have.
 // ---------------------------------------------------------------------------
 bool snippetModeOn = false;
 const int PREROLL_CHUNKS = 2;
@@ -190,11 +325,10 @@ uint32_t eventStartMs   = 0;
 uint32_t refractoryUntil = 0;
 int quietChunkCount     = 0;
 int16_t peakThisEvent   = 0;
-int zcCountEvent        = 0;  // zero-crossings accumulated during ACTIVE
 
-// Timing-based prediction (diagnostic, to compare against the acoustic
-// duration-based guess): a click starting more than TIMING_GAP_THRESHOLD_MS
-// after the previous one is assumed to be the START of a new cycle - the
+// Timing-based prediction (diagnostic): a click starting more than
+// TIMING_GAP_THRESHOLD_MS after the previous one is assumed to be the
+// START of a new cycle - the
 // valve is normally-closed and opens briefly, so this is the "opening"
 // click ('1'); one arriving sooner is assumed to be the END of the current
 // cycle, valve returning closed ('0'). This has been 100% consistent
@@ -205,28 +339,486 @@ const uint32_t TIMING_GAP_THRESHOLD_MS = 25000;
 uint32_t prevEventStartMs = 0;      // 0 = no previous event yet this boot
 char currentTimingPrediction = '0';
 
+// Millisecond-precision gap since the previous click event (computed via
+// millis(), same value the timing-based '1'/'0' prediction is based on),
+// captured at trigger time and logged alongside the RTC timestamp. The RTC
+// only has whole-SECOND resolution, so relying on ISO-timestamp deltas
+// between consecutive log rows to measure short inter-click gaps (e.g.
+// master valve vs. station valve staggering) is only accurate to +/-1s;
+// this field gives the real sub-second precision. 0xFFFFFFFF (logged as
+// "NA") means this is the first event since boot - no previous event to
+// compare against.
+uint32_t currentEventGapMs = 0;
+
 // ---------------------------------------------------------------------------
-// Hall-effect sensor correlation (experimental, HALLON/HALLOFF) - the ESP32
-// has a built-in Hall sensor (hallRead(), no extra hardware). Theory: this
-// is a DC LATCHING solenoid, which reverses coil current direction to
-// switch open vs close - so the magnetic pulse accompanying each actuation
-// should have OPPOSITE polarity for open vs close, unlike anything we've
-// found acoustically. Tracks a slow-moving baseline while idle, then
-// min/max deviation from that baseline during each click event.
+// Burst grouping - detects multiple solenoids firing in a staggered
+// sequence around the same open/close transition (e.g. a master valve +
+// station valve on the same controller, discovered to fire ~1-2s apart
+// rather than simultaneously - likely capacitor recharge time on this
+// battery-powered controller). Events less than BURST_GAP_MS apart are
+// considered part of the same burst.
+//
+// Burst TYPE (open vs close) is decided by strict alternation, NOT by
+// comparing the gap since the previous event against a fixed threshold:
+// the first burst since the last CYCLESTART/CLEAR is "open", then it
+// flips every new burst. This is robust no matter how long a given
+// inter-station transition takes (a multi-station program run was found
+// to have ~18s between one station's close and the next station's open -
+// long enough to start a new burst but easily confusable with a "close"
+// gap under any fixed-threshold scheme). See burstLabel() below for how
+// this pairs with a monotonic per-cycle burst index to keep every
+// station's labels collision-free regardless of program size.
+//
+// BURST_GAP_MS must sit comfortably above the intra-burst gap (~1-2s
+// observed so far) and comfortably below the minimum inter-burst gap
+// within one program run (this controller's enforced minimum station
+// runtime is 7s). 5000ms gives margin on both sides; it no longer needs
+// to also distinguish "new station" from "same station closing" (that's
+// now handled by alternation + the burst index), so it doesn't need to be
+// anywhere near as large as the longest possible inter-station transition.
+// ---------------------------------------------------------------------------
+const uint32_t BURST_GAP_MS = 5000;
+bool currentBurstIsOpen = true;    // this event's burst's open/close type
+int currentBurstPosition = 0;      // 0-based position within its burst
+
+// Monotonically-increasing count of bursts seen since the last
+// CYCLESTART/CLEAR (or boot) - embedded in the label so that different
+// stations'/solenoids' bursts within one multi-station program run can
+// never collide, no matter how many there are or how long the gaps
+// between them are. Reset to 0 by resetBurstCycle() (see CYCLESTART/CLEAR
+// command handlers below).
+int burstSeqIndex = -1;  // -1 = no burst started yet since last reset;
+                          // becomes 0 on the first event of a new cycle.
+
+// Resets burst-sequence numbering and open/close alternation back to a
+// fresh cycle start ("the next burst detected will be burst #0, and it
+// will be labeled as an opening transition"). Call this once before each
+// repeated full test cycle (e.g. right before triggering a manual
+// Program Run) so the same burstSeq numbers - and hence the same
+// burst_label values - recur cycle to cycle, which TMAGCAL depends on to
+// average multiple samples of the same real-world class together. Also
+// called by CLEAR, since starting a fresh log implies a fresh cycle too.
+void resetBurstCycle() {
+    burstSeqIndex = -1;
+    currentBurstIsOpen = true;
+    currentBurstPosition = 0;
+}
+
+// Builds this event's burst label, e.g. "O0_0" (position 0 of burst 0 -
+// on a master+station rig, the master valve opening), "O0_1" (position 1
+// of the same burst - the station valve opening), "C1_0"/"C1_1" similarly
+// for burst 1 (a closing burst - station closes first, then master).
+// A third station's own single-solenoid open/close a program run later
+// becomes burst 2 ("O2_0") and burst 3 ("C3_0") - the ever-incrementing
+// burst index guarantees these can never collide with burst 0/1's labels,
+// however many stations/solenoids are chained together in one program.
+// Degenerates to just "O0_0"/"C1_0" per cycle on a single-valve rig
+// (matching the original binary open/close behavior, modulo the new
+// explicit burst index suffix).
+String burstLabel() {
+    return String(currentBurstIsOpen ? "O" : "C") + String(burstSeqIndex) +
+           "_" + String(currentBurstPosition);
+}
+
+// ---------------------------------------------------------------------------
+// Hall-effect sensor correlation (experimental, HALLON/HALLOFF) - reads the
+// external Grove Hall Effect Unit (see PIN_HALL_DATA above). Theory: this is
+// a DC LATCHING solenoid, which reverses coil current direction to switch
+// open vs close - so the magnetic pulse accompanying each actuation might
+// trip this switch on only one of the two click types, unlike anything
+// we've found acoustically. Since the sensor is a threshold switch (not a
+// continuous ADC reading like the old built-in hallRead()), all we track is
+// whether it went LOW (triggered) at any point during the click event.
 // ---------------------------------------------------------------------------
 bool hallModeOn = false;
-float hallBaseline = 0;
-int hallMinEvent = 0;
-int hallMaxEvent = 0;
+bool hallTriggeredEvent = false;
 
-// Minimum |deviation from baseline| required to treat an event as a real
-// solenoid actuation rather than incidental noise (finger snap, tap,
-// voice, etc.) that happened to be loud enough to cross THRESH_ON
-// acoustically but has no accompanying magnetic pulse. Starting guess based
-// on initial testing (real clicks showed 47-171 deviation vs ~20-40
-// baseline noise) - may need tuning once more finger-snap samples are
-// collected for comparison.
-const int HALL_ACTIVITY_THRESHOLD = 30;
+// ---------------------------------------------------------------------------
+// External TMAG5273 3-axis I2C magnetometer (Grove Port A, SDA=GPIO32,
+// SCL=GPIO33 - confirmed via M5Stack's own ACCEL_ADXL345/TVOC_SGP30 example
+// sketches, and verified live with an I2C scan on this exact board/unit
+// finding it at the expected default address 0x35).
+//
+// NOTE: this shares the same two physical Grove Port A pins as the A3144E
+// digital switch above (PIN_HALL_DATA = GPIO33 is also the I2C SCL line) -
+// the two sensors are meant to be swapped in/out one at a time, NOT
+// connected simultaneously. Whichever is actually plugged in "wins" that
+// pin electrically; the other sensor's code just reads meaningless data
+// harmlessly (not logged unless its own *ON command is toggled).
+//
+// Unlike the A3144E (a simple threshold switch), this gives continuous
+// signed X/Y/Z field readings in mT - the goal is to look for either (a) a
+// field DIRECTION/magnitude signature during a click that distinguishes
+// open vs close, or (b) a static positional difference in the RESTING
+// field between the two valve states (open vs closed, no click happening) -
+// something the A3144E's single-threshold digital output can't reveal.
+// ---------------------------------------------------------------------------
+#define TMAG5273_I2C_ADDR 0x35  // confirmed via I2C scan on this exact unit
+
+const uint8_t TMAG_REG_DEVICE_CONFIG_2     = 0x01;
+const uint8_t TMAG_REG_SENSOR_CONFIG_1     = 0x02;
+const uint8_t TMAG_REG_T_CONFIG            = 0x07;
+const uint8_t TMAG_REG_DEVICE_ID           = 0x0D;
+const uint8_t TMAG_REG_MANUFACTURER_ID_LSB = 0x0E;
+const uint8_t TMAG_REG_X_MSB_RESULT        = 0x12;  // X/Y/Z MSB,LSB = 6
+                                                      // consecutive bytes
+                                                      // starting here.
+
+const uint16_t TMAG_MANUFACTURER_ID_EXPECTED = 0x5449;  // "TI", per datasheet
+
+// The TMAG5273 comes in two range variants sharing the exact same
+// registers/pinout - DEVICE_ID register bits[1:0] tell them apart (verified
+// against both TI's SparkFun Arduino library and Adafruit's own
+// Adafruit_TMAG5273 driver source, not guessed):
+//   0x1 = "X1" variant: +/-40mT / +/-80mT (range bit 0 = narrow/wide)
+//   0x2 = "X2" variant: +/-133mT / +/-266mT
+// This board is confirmed to be an Adafruit TMAG5273 **A2** (product 6490,
+// the X2/wide-range variant) - but we detect it live at boot rather than
+// hardcoding that, so this code keeps working correctly if an A1 board
+// (product 6489) ever gets swapped in instead. SENSOR_CONFIG_2's range
+// bits are left at their power-on-reset default (0 = narrow), so the
+// active range is 40mT for X1 or 133mT for X2 - tmagRangeMt is set to
+// match whichever was actually detected.
+float tmagRangeMt = 40.0f;  // placeholder until tmagInit() detects the
+                             // real variant; DO NOT trust readings if
+                             // tmagOk is false.
+
+bool tmagOk = false;         // sensor detected + configured OK at boot
+bool tmagModeOn = false;     // TMAGON/TMAGOFF: adds 6 CSV columns (x/y/z
+                              // min/max) to each logged click event
+bool tmagStreamOn = false;   // TMAGSTREAM/TMAGSTREAMOFF: live-prints X/Y/Z
+                              // to Serial continuously - for manual bench
+                              // positioning (watching values change in real
+                              // time as you move the sensor around the
+                              // solenoid, no click needed, same idea as
+                              // watching the A3144E's LED but with numbers)
+uint32_t lastTmagStreamMs = 0;
+const uint32_t TMAG_STREAM_INTERVAL_MS = 150;
+
+// Per-event extremes (like hallMinEvent/hallMaxEvent used to be for the old
+// built-in hallRead()), tracked per axis while TMAGON is active.
+float tmagXMin, tmagXMax, tmagYMin, tmagYMax, tmagZMin, tmagZMax;
+
+// ---------------------------------------------------------------------------
+// TMAG5273 auto-calibrated multi-class classifier (TMAGCAL command).
+//
+// Rather than hardcoding "the discriminating signal is on the Z axis,
+// positive=open" (true for one particular bench setup/mounting, but not
+// something to assume for every future rig/orientation), this computes
+// empirical class-mean vectors in 3D magnetic space from a few real click
+// events, using ground-truth labels derived purely from timing (see
+// burstLabel() above - "O0"/"O1"/... for staggered opens, "C0"/"C1"/...
+// for staggered closes):
+//   1. Capture each click's peak signed deviation per axis (whichever of
+//      min/max has the larger magnitude) as a representative 3D sample.
+//   2. Average those vectors separately per distinct burst-label class
+//      seen during calibration (a single-valve rig naturally only ever
+//      produces 2 classes, "O0"/"C0" - the exact binary open/close case
+//      this started as; a master+station rig produces 4: "O0","O1","C0",
+//      "C1"; more staggered solenoids would produce more, with zero code
+//      changes needed).
+//   3. Classify future events via NEAREST CENTROID: whichever calibrated
+//      class mean is closest (Euclidean distance) to the new event's own
+//      vector.
+// This generalizes across mounting orientations AND number of solenoids
+// with zero code changes - just re-run TMAGCAL after remounting/adding
+// solenoids.
+//
+// RAM-only, like THRESH/HALLON/etc - resets on reboot, must be re-run after
+// every reflash (consistent with the rest of this project's RAM-only
+// settings; see HANDOFF.md).
+// ---------------------------------------------------------------------------
+const int MAX_TMAG_CLASSES = 8;  // generous headroom beyond the 4 classes
+                                   // expected from a 2-solenoid rig
+const int MAX_TMAG_CAL_SAMPLES = 64;  // generous headroom for raw
+                                        // calibration samples (used to
+                                        // measure each class's spread -
+                                        // see TMAG_REJECT_MARGIN below)
+
+bool tmagCalibrating = false;
+bool tmagCalibrated = false;
+int tmagCalRemaining = 0;  // calibration events still needed before we
+                            // finalize the classifier
+
+String tmagClassLabels[MAX_TMAG_CLASSES];
+float tmagClassSum[MAX_TMAG_CLASSES][3];
+int tmagClassCount[MAX_TMAG_CLASSES];
+float tmagClassMean[MAX_TMAG_CLASSES][3];  // finalized once calibration
+                                             // completes
+int tmagNumClasses = 0;
+
+// Raw per-event samples collected during calibration (label + vector),
+// kept around just long enough to measure each class's own spread
+// (max distance from its mean to any of its own calibration samples)
+// once calibration finishes - see TMAG_REJECT_MARGIN below.
+String tmagCalSampleLabel[MAX_TMAG_CAL_SAMPLES];
+float tmagCalSampleVec[MAX_TMAG_CAL_SAMPLES][3];
+int tmagCalSampleCount = 0;
+
+// "No Correlation" flag: classifyTmagVector() returns this instead of a
+// real class label when an event's vector doesn't land close to ANY
+// calibrated class - e.g. a finger-snap or other spurious acoustic
+// trigger, which (unlike a real solenoid actuation) has no accompanying
+// magnetic deviation and so should sit near the ambient baseline, far
+// from every real click cluster. Unlike the old built-in hallRead()-based
+// noise filter (removed - confirmed unreliable, see HANDOFF.md), this
+// doesn't discard/reject the event - it still gets logged/counted/shown
+// normally, just flagged, so nothing is silently thrown away and the
+// classifier's behavior stays fully visible/auditable.
+const char *TMAG_NO_CORRELATION = "NC";
+
+// How far (in multiples of the largest intra-class spread actually
+// observed during calibration) an event's vector can be from its nearest
+// class mean before it gets flagged TMAG_NO_CORRELATION instead of that
+// class's label. Grounded in real per-class variance from calibration
+// data (not a guessed absolute number, unlike the old hallRead()-based
+// filter) - still just a multiplier choice, tune if false-flagging or
+// under-flagging shows up in practice.
+const float TMAG_REJECT_MARGIN = 2.5f;
+float tmagRejectThresholdSq = 1e18f;  // squared distance; effectively
+                                        // "never flag" until calibration
+                                        // sets a real value
+
+// Most recently classified event's label (e.g. "O0", "C1", TMAG_NO_CORRELATION,
+// or "?" if not yet calibrated), exposed as an extra indicator field so it
+// can be visually cross-checked against the timing/burst-derived ground
+// truth, same as the acoustic duration-based guess already is.
+String tmagClassification = "?";
+
+// Returns the peak signed deviation for one axis - whichever of min/max
+// has the larger absolute value. Approximates a representative sample of
+// the event's field vector without needing new simultaneous-sample
+// instrumentation (reuses the existing per-axis min/max tracking).
+float tmagPeakSigned(float minVal, float maxVal) {
+    return (fabsf(minVal) > fabsf(maxVal)) ? minVal : maxVal;
+}
+
+// Starts (or restarts) a calibration run: the next `n` click events will be
+// used as training examples (their burst-derived label taken as ground
+// truth), after which per-class means are computed automatically. Safe to
+// call again anytime (e.g. after remounting/repositioning the sensor, or
+// adding another solenoid to the rig) - resets any previous calibration.
+void startTmagCalibration(int n) {
+    tmagCalibrating = true;
+    tmagCalibrated = false;
+    tmagCalRemaining = n;
+    tmagNumClasses = 0;
+    tmagCalSampleCount = 0;
+    for (int i = 0; i < MAX_TMAG_CLASSES; i++) {
+        tmagClassLabels[i] = "";
+        tmagClassSum[i][0] = tmagClassSum[i][1] = tmagClassSum[i][2] = 0;
+        tmagClassCount[i] = 0;
+    }
+}
+
+// Finds the class slot for a given label, creating a new one if this
+// label hasn't been seen yet this calibration run. Returns -1 if out of
+// slots (MAX_TMAG_CLASSES exceeded - extremely unlikely for any real rig).
+int findOrCreateTmagClass(const String &label) {
+    for (int i = 0; i < tmagNumClasses; i++) {
+        if (tmagClassLabels[i] == label) return i;
+    }
+    if (tmagNumClasses >= MAX_TMAG_CLASSES) return -1;
+    tmagClassLabels[tmagNumClasses] = label;
+    return tmagNumClasses++;
+}
+
+// Feeds one click event's peak vector into the ongoing calibration
+// (accumulating into whichever class its burst label identifies), and
+// finalizes per-class means (plus the no-correlation distance threshold)
+// once enough events have been seen. Safe to call unconditionally per
+// event; no-ops if a calibration isn't currently running.
+void feedTmagCalibration(const String &label, float vecX, float vecY,
+                          float vecZ) {
+    if (!tmagCalibrating) return;
+
+    int idx = findOrCreateTmagClass(label);
+    if (idx >= 0) {
+        tmagClassSum[idx][0] += vecX;
+        tmagClassSum[idx][1] += vecY;
+        tmagClassSum[idx][2] += vecZ;
+        tmagClassCount[idx]++;
+    }
+    if (tmagCalSampleCount < MAX_TMAG_CAL_SAMPLES) {
+        tmagCalSampleLabel[tmagCalSampleCount] = label;
+        tmagCalSampleVec[tmagCalSampleCount][0] = vecX;
+        tmagCalSampleVec[tmagCalSampleCount][1] = vecY;
+        tmagCalSampleVec[tmagCalSampleCount][2] = vecZ;
+        tmagCalSampleCount++;
+    }
+
+    tmagCalRemaining--;
+    if (tmagCalRemaining > 0) return;  // still collecting
+
+    tmagCalibrating = false;
+
+    if (tmagNumClasses < 2) {
+        Serial.println("[WARN] TMAG calibration failed - saw fewer than 2 "
+                        "distinct classes (check DUMP for burst labels). "
+                        "Not calibrated.");
+        return;
+    }
+
+    Serial.printf("TMAG calibration complete: %d class(es)\n", tmagNumClasses);
+    for (int i = 0; i < tmagNumClasses; i++) {
+        tmagClassMean[i][0] = tmagClassSum[i][0] / tmagClassCount[i];
+        tmagClassMean[i][1] = tmagClassSum[i][1] / tmagClassCount[i];
+        tmagClassMean[i][2] = tmagClassSum[i][2] / tmagClassCount[i];
+        Serial.printf("  '%s': n=%d mean=(%.2f, %.2f, %.2f)\n",
+                      tmagClassLabels[i].c_str(), tmagClassCount[i],
+                      tmagClassMean[i][0], tmagClassMean[i][1],
+                      tmagClassMean[i][2]);
+    }
+
+    // Measure each class's own spread: the largest distance from its mean
+    // to any of ITS OWN calibration samples. The largest such spread
+    // across all classes, times TMAG_REJECT_MARGIN, becomes the
+    // "too far to be any known class" threshold - grounded in this rig's
+    // actual observed variance, not a guess.
+    float maxIntraClassDistSq = 0;
+    for (int s = 0; s < tmagCalSampleCount; s++) {
+        int idx = -1;
+        for (int c = 0; c < tmagNumClasses; c++) {
+            if (tmagClassLabels[c] == tmagCalSampleLabel[s]) {
+                idx = c;
+                break;
+            }
+        }
+        if (idx < 0) continue;
+        float dx = tmagCalSampleVec[s][0] - tmagClassMean[idx][0];
+        float dy = tmagCalSampleVec[s][1] - tmagClassMean[idx][1];
+        float dz = tmagCalSampleVec[s][2] - tmagClassMean[idx][2];
+        float distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq > maxIntraClassDistSq) maxIntraClassDistSq = distSq;
+    }
+    // Floor of (0.1mT * margin)^2 so a degenerate zero-spread calibration
+    // (e.g. only 1 sample in every class) doesn't make the threshold zero
+    // and flag every single future event as no-correlation.
+    const float MIN_SPREAD_SQ = 0.01f;  // (0.1mT)^2
+    if (maxIntraClassDistSq < MIN_SPREAD_SQ) maxIntraClassDistSq = MIN_SPREAD_SQ;
+    tmagRejectThresholdSq =
+        maxIntraClassDistSq * (TMAG_REJECT_MARGIN * TMAG_REJECT_MARGIN);
+    Serial.printf("  no-correlation threshold: %.2fmT (%.1fx largest "
+                  "observed intra-class spread of %.2fmT)\n",
+                  sqrtf(tmagRejectThresholdSq), TMAG_REJECT_MARGIN,
+                  sqrtf(maxIntraClassDistSq));
+
+    tmagCalibrated = true;
+}
+
+// Classifies one event's peak vector via nearest centroid - whichever
+// calibrated class mean is closest (Euclidean distance), or
+// TMAG_NO_CORRELATION if even the nearest class is farther away than
+// tmagRejectThresholdSq (see feedTmagCalibration) - i.e. this event's
+// magnetic signature doesn't resemble any known click type, the way a
+// finger-snap or other spurious acoustic trigger wouldn't. Only
+// meaningful if tmagCalibrated; callers should check that first.
+String classifyTmagVector(float vecX, float vecY, float vecZ) {
+    int bestIdx = -1;
+    float bestDist = 1e18f;
+    for (int i = 0; i < tmagNumClasses; i++) {
+        float dx = vecX - tmagClassMean[i][0];
+        float dy = vecY - tmagClassMean[i][1];
+        float dz = vecZ - tmagClassMean[i][2];
+        float dist = dx * dx + dy * dy + dz * dz;
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = i;
+        }
+    }
+    if (bestIdx < 0) return "?";
+    if (bestDist > tmagRejectThresholdSq) return TMAG_NO_CORRELATION;
+    return tmagClassLabels[bestIdx];
+}
+
+bool tmagWriteReg(uint8_t reg, uint8_t value) {
+    Wire.beginTransmission(TMAG5273_I2C_ADDR);
+    Wire.write(reg);
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+}
+
+bool tmagReadRegs(uint8_t startReg, uint8_t *buf, uint8_t len) {
+    Wire.beginTransmission(TMAG5273_I2C_ADDR);
+    Wire.write(startReg);
+    if (Wire.endTransmission(false) != 0) return false;  // repeated start,
+                                                           // keep bus held
+    if (Wire.requestFrom((int)TMAG5273_I2C_ADDR, (int)len) != len) return false;
+    for (uint8_t i = 0; i < len; i++) buf[i] = Wire.read();
+    return true;
+}
+
+// Converts a raw signed 16-bit register pair (MSB, LSB) to a field strength
+// in mT, per the TMAG5273 datasheet's conversion (full-scale RANGE maps to
+// the signed 16-bit range: value/32768 * RANGE). Uses the RANGE detected at
+// init time (tmagRangeMt), not a hardcoded constant - see note above.
+float tmagRawToMt(int16_t raw) {
+    return ((float)raw * tmagRangeMt) / 32768.0f;
+}
+
+// Configures the sensor for continuous X/Y/Z (+temperature) conversion and
+// verifies its manufacturer ID AND detects its range variant (A1 vs A2)
+// over I2C first. Returns false (leaving tmagOk false) if anything doesn't
+// check out - callers must treat all tmagReadXYZ() calls as
+// unavailable/untrustworthy in that case rather than silently logging
+// garbage (or, worse, correctly-shaped but wrongly-SCALED garbage - the
+// original version of this code assumed the A1's 40mT range unconditionally,
+// which would have silently under-reported this A2 board's actual field
+// strength by ~3.3x).
+bool tmagInit() {
+    uint8_t idBuf[2];
+    if (!tmagReadRegs(TMAG_REG_MANUFACTURER_ID_LSB, idBuf, 2)) return false;
+    uint16_t mfgId = ((uint16_t)idBuf[1] << 8) | idBuf[0];
+    if (mfgId != TMAG_MANUFACTURER_ID_EXPECTED) {
+        Serial.printf("[WARN] TMAG5273 manufacturer ID mismatch: got 0x%04X, "
+                      "expected 0x%04X - not initializing.\n", mfgId,
+                      TMAG_MANUFACTURER_ID_EXPECTED);
+        return false;
+    }
+
+    uint8_t deviceIdReg;
+    if (!tmagReadRegs(TMAG_REG_DEVICE_ID, &deviceIdReg, 1)) return false;
+    uint8_t variant = deviceIdReg & 0x03;
+    if (variant == 0x1) {
+        tmagRangeMt = 40.0f;
+        Serial.println("TMAG5273 variant: X1 (+/-40mT range, narrow).");
+    } else if (variant == 0x2) {
+        tmagRangeMt = 133.0f;
+        Serial.println("TMAG5273 variant: X2 (+/-133mT range, narrow).");
+    } else {
+        Serial.printf("[WARN] TMAG5273 DEVICE_ID variant byte 0x%02X not "
+                       "recognized (expected 1 or 2) - not initializing.\n",
+                       variant);
+        return false;
+    }
+
+    // SENSOR_CONFIG_1: enable X, Y, Z magnetic channels (bits 7-4 = 0x7),
+    // sleep-time bits (3-0) left at 0 - unused outside wake-up/sleep mode.
+    if (!tmagWriteReg(TMAG_REG_SENSOR_CONFIG_1, 0x70)) return false;
+    // T_CONFIG: enable the temperature channel (bit 0) - logged for
+    // reference/context only, not currently used for anything.
+    if (!tmagWriteReg(TMAG_REG_T_CONFIG, 0x01)) return false;
+    // DEVICE_CONFIG_2: continuous measure mode (bits 1-0 = 0x2) - keeps the
+    // sensor converting in the background so reads are always fresh,
+    // rather than needing an explicit trigger per read.
+    if (!tmagWriteReg(TMAG_REG_DEVICE_CONFIG_2, 0x02)) return false;
+
+    return true;
+}
+
+// Reads the current X/Y/Z field (mT). Returns false on any I2C error -
+// callers must not trust x/y/z if this returns false.
+bool tmagReadXYZ(float &x, float &y, float &z) {
+    uint8_t buf[6];
+    if (!tmagReadRegs(TMAG_REG_X_MSB_RESULT, buf, 6)) return false;
+    int16_t rawX = ((int16_t)buf[0] << 8) | buf[1];
+    int16_t rawY = ((int16_t)buf[2] << 8) | buf[3];
+    int16_t rawZ = ((int16_t)buf[4] << 8) | buf[5];
+    x = tmagRawToMt(rawX);
+    y = tmagRawToMt(rawY);
+    z = tmagRawToMt(rawZ);
+    return true;
+}
 
 // Suppresses click detection for the given duration - used any time we know
 // a spurious/non-solenoid acoustic event is about to happen (or just did)
@@ -497,6 +1089,73 @@ void redrawScreen() {
 }
 
 // ---------------------------------------------------------------------------
+// TMAG5273 live positioning display (TMAGSTREAM/TMAGSTREAMOFF) - a
+// dedicated full-screen view showing live X/Y/Z field readings as
+// numbers + bipolar bar graphs, so bench positioning experiments (moving
+// the sensor around the solenoid, comparing resting open/closed states)
+// can be done by watching the Stick's own screen, untethered from a
+// laptop serial monitor - the numeric equivalent of watching the A3144E's
+// onboard LED, but with 3-axis magnitude+direction instead of a single
+// on/off trigger.
+//
+// NOTE: if a real click event happens while this view is active,
+// logClickEvent()'s redrawScreen() call will briefly replace it with the
+// normal click-history view; the next periodic TMAG update then redraws
+// this live view again. Not worth avoiding for a bench-positioning tool.
+// ---------------------------------------------------------------------------
+
+// Static parts (title, range) - drawn once when TMAGSTREAM turns on, not
+// repeated on every update (unlike the per-axis rows, which redraw often).
+void drawTmagLiveScreenStatic() {
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setTextColor(WHITE, BLACK);
+    M5.Lcd.setCursor(LEFT_MARGIN, TOP_MARGIN);
+    M5.Lcd.print("TMAG LIVE");
+    M5.Lcd.setCursor(LEFT_MARGIN, TOP_MARGIN + M5.Lcd.fontHeight());
+    M5.Lcd.printf("range +/-%.0fmT", tmagRangeMt);
+}
+
+// Draws one axis's row: a numeric readout plus a bipolar horizontal bar
+// (centered = 0, extends right for positive, left for negative, scaled to
+// the sensor's active +/-tmagRangeMt range). rowIndex 0/1/2 = X/Y/Z, drawn
+// top-to-bottom below the static title/range lines.
+void drawTmagAxisBar(int rowIndex, char axisLabel, float value) {
+    int rowTop = TOP_MARGIN + (2 + rowIndex * 2) * M5.Lcd.fontHeight();
+
+    // Numeric readout - setTextColor(fg, BLACK) makes print() opaque-erase
+    // the previous value in place (same trick used elsewhere in this file
+    // for the clock), so no separate fillRect() needed for the text part.
+    M5.Lcd.setTextColor(WHITE, BLACK);
+    M5.Lcd.setCursor(LEFT_MARGIN, rowTop);
+    M5.Lcd.printf("%c %+6.2f", axisLabel, value);
+
+    // Bar graph - centered horizontally, positive right/green, negative
+    // left/orange. Needs an explicit clear since the bar's length (not
+    // just its text content) changes between updates.
+    int barY = rowTop + M5.Lcd.fontHeight() + 2;
+    int barHeight = 6;
+    int centerX = M5.Lcd.width() / 2;
+    int halfWidth = (M5.Lcd.width() / 2) - 10;
+
+    M5.Lcd.fillRect(0, barY, M5.Lcd.width(), barHeight, BLACK);
+    M5.Lcd.drawFastVLine(centerX, barY, barHeight, DARKGREY);  // zero tick
+
+    float clamped = value;
+    if (clamped > tmagRangeMt) clamped = tmagRangeMt;
+    if (clamped < -tmagRangeMt) clamped = -tmagRangeMt;
+    int barLen = (int)((clamped / tmagRangeMt) * halfWidth);
+
+    const uint16_t barColorPos = rgb565(80, 255, 120);   // green (matches
+                                                           // STATUS_COLOR_ON)
+    const uint16_t barColorNeg = rgb565(255, 160, 60);    // orange
+    if (barLen >= 0) {
+        M5.Lcd.fillRect(centerX, barY, barLen, barHeight, barColorPos);
+    } else {
+        M5.Lcd.fillRect(centerX + barLen, barY, -barLen, barHeight, barColorNeg);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -536,30 +1195,23 @@ bool initI2SMic() {
 // Persists across calls so zero-crossing detection works correctly at chunk
 // boundaries (otherwise we'd miss/double-count the crossing that happens
 // right at the edge between two consecutive reads).
-static int16_t lastSampleForZC = 0;
-
-// Reads one chunk, returns the peak absolute sample value, and reports the
-// number of zero-crossings in that chunk via zeroCrossingsOut. Zero-crossing
-// rate is a cheap proxy for the dominant frequency/pitch of the sound - much
-// cheaper than a full FFT, and enough to compare click "timbre" alongside
-// duration (e.g. a higher-pitched vs lower-pitched click).
-int16_t readMicChunk(int *zeroCrossingsOut) {
+// Reads one chunk and returns the peak absolute sample value - purely used
+// as a threshold trigger (see 2026-09-09 decision to deprioritize acoustic
+// precision, top-of-file doc comment). Used to compute a zero-crossing-rate
+// pitch estimate too, but that's been removed - it never reliably
+// distinguished open vs. close, and full classification now belongs to the
+// TMAG5273 nearest-centroid classifier instead.
+int16_t readMicChunk() {
     size_t bytesRead = 0;
     i2s_read(I2S_NUM_0, (char *)audioBuf, sizeof(audioBuf), &bytesRead,
               portMAX_DELAY);
     size_t n = bytesRead / sizeof(int16_t);
     int16_t peak = 0;
-    int zc = 0;
-    int16_t prev = lastSampleForZC;
     for (size_t i = 0; i < n; i++) {
         int16_t v = audioBuf[i];
         int16_t a = (v < 0) ? -v : v;
         if (a > peak) peak = a;
-        if ((prev < 0 && v >= 0) || (prev >= 0 && v < 0)) zc++;
-        prev = v;
     }
-    lastSampleForZC = prev;
-    if (zeroCrossingsOut) *zeroCrossingsOut = zc;
     return peak;
 }
 
@@ -611,40 +1263,67 @@ String durationAsDecimal(uint32_t durationMs) {
     return String(buf);
 }
 
-// Rough heuristic distinguishing the solenoid's two click sounds by
-// duration: shorter clicks are assumed to be the "0" (energize/latch)
-// event, longer ones "1" (release). Adjust CLICK_CLASSIFY_MS once real
-// durations for both cases are known more precisely.
-const uint32_t CLICK_CLASSIFY_MS = 20;
-const char *classifyClick(uint32_t durationMs) {
-    return durationMs < CLICK_CLASSIFY_MS ? "0" : "1";
-}
-
 void logClickEvent(RTC_DateTypeDef &d, RTC_TimeTypeDef &t, uint32_t durationMs,
-                    int16_t peak, float freqHz) {
+                    int16_t peak) {
     clickCount++;
 
-    // Combined diagnostic indicator: "<timing prediction><acoustic guess>".
-    // Timing digit: '1' = start of cycle (valve opening), '0' = end of
-    // cycle (valve returning closed - normally-closed valve). E.g. "10" =
-    // timing predicted opening, but duration-based guess says closing
-    // (disagreement) - lets us see, per event, how often the acoustic
-    // heuristic actually agrees with the (so-far much more reliable)
-    // timing-based prediction.
-    String indicator = String(currentTimingPrediction) + classifyClick(durationMs);
+    // TMAG5273 calibration/classification - feed this event into an
+    // ongoing calibration run (no-op if none is active), then classify it
+    // if a calibration has already completed. Uses the burst-derived
+    // label (see burstLabel()) as ground truth during calibration - NOT
+    // the plain timing prediction - so multi-solenoid rigs (master +
+    // station valve staggered firing) get correctly split into their own
+    // classes rather than being lumped together. Done unconditionally
+    // whenever the sensor is present (not gated by TMAGON, same as the
+    // existing per-axis min/max tracking) since it's cheap and useful to
+    // see live even without full CSV logging enabled.
+    if (tmagOk) {
+        float vecX = tmagPeakSigned(tmagXMin, tmagXMax);
+        float vecY = tmagPeakSigned(tmagYMin, tmagYMax);
+        float vecZ = tmagPeakSigned(tmagZMin, tmagZMax);
+        feedTmagCalibration(burstLabel(), vecX, vecY, vecZ);
+        if (tmagCalibrated) {
+            tmagClassification = classifyTmagVector(vecX, vecY, vecZ);
+        }
+    }
+
+    // Diagnostic indicator: "<timing prediction>" plus an optional
+    // TMAG classification field appended once a TMAG5273 calibration has
+    // completed (see TMAGCAL). Timing digit: '1' = start of cycle (valve
+    // opening), '0' = end of cycle (valve returning closed - normally-
+    // closed valve). The TMAG field (e.g. "O0_0"/"O0_1" for a staggered-
+    // open burst, "C1_0"/"C1_1" for staggered-close - see burstLabel()) is
+    // the one that's actually trustworthy for classification (see
+    // 2026-09-09 decision, top-of-file doc comment) - acoustic duration/
+    // frequency-based guessing has been removed entirely.
+    String indicator = String(currentTimingPrediction);
+    if (tmagCalibrated) {
+        indicator += tmagClassification;
+    }
 
     String iso = isoTimestamp(d, t);
+    String gapMsStr = (currentEventGapMs == 0xFFFFFFFF)
+                           ? "NA"
+                           : String(currentEventGapMs);
     String line = iso + "," + String(durationMs) + "," +
-                  String(peak) + "," + String(freqHz, 0) + "," +
-                  indicator;
+                  String(peak) + "," +
+                  indicator + "," + gapMsStr + "," + burstLabel();
 
-    // Hall-sensor correlation data (experimental, HALLON only): baseline
-    // (ambient field level just before this event) plus the min/max reading
-    // seen during the event - deviation direction/magnitude from baseline
-    // is what we're checking for a possible open-vs-close polarity signal.
+    // Hall-sensor correlation data (experimental, HALLON only): whether the
+    // external Grove Hall Effect Unit's switch output went LOW (triggered)
+    // at any point during this event - checking whether it fires
+    // consistently on one click type but not the other (open vs close).
     if (hallModeOn) {
-        line += "," + String(hallBaseline, 0) + "," + String(hallMinEvent) +
-                "," + String(hallMaxEvent);
+        line += "," + String(hallTriggeredEvent ? 1 : 0);
+    }
+
+    // TMAG5273 correlation data (experimental, TMAGON only): min/max field
+    // reading (mT) per axis seen during this event - looking for a
+    // direction/magnitude signature that distinguishes open vs close.
+    if (tmagModeOn && tmagOk) {
+        line += "," + String(tmagXMin, 2) + "," + String(tmagXMax, 2) + "," +
+                String(tmagYMin, 2) + "," + String(tmagYMax, 2) + "," +
+                String(tmagZMin, 2) + "," + String(tmagZMax, 2);
     }
 
     Serial.println(line);
@@ -669,23 +1348,15 @@ void logClickEvent(RTC_DateTypeDef &d, RTC_TimeTypeDef &t, uint32_t durationMs,
         eventLines[i] = eventLines[i + 1];
     }
 
-    // Signed Hall-sensor peak deviation from baseline (whichever of
-    // min/max swung furthest, keeping its sign) - compact single field for
-    // on-screen experimentation.
-    int minDev = hallMinEvent - (int)hallBaseline;
-    int maxDev = hallMaxEvent - (int)hallBaseline;
-    int hallPeakSigned = (abs(minDev) > abs(maxDev)) ? minDev : maxDev;
-    char hallBuf[8];
-    snprintf(hallBuf, sizeof(hallBuf), "%+d", hallPeakSigned);
-
-    // Compact "X.Xk" frequency (kHz, 1 decimal).
-    char freqBuf[8];
-    snprintf(freqBuf, sizeof(freqBuf), "%.1fk", freqHz / 1000.0f);
+    // External Hall Effect Unit trigger indicator for the on-screen history
+    // line: "H" if it fired (went LOW) at any point during this event,
+    // "-" otherwise.
+    const char *hallBuf = hallTriggeredEvent ? "H" : "-";
 
     eventLines[NUM_HISTORY_LINES - 1] = {
         compactMinSec(t),
-        durationAsDecimal(durationMs) + " " + indicator + " " + freqBuf +
-            " " + hallBuf,
+        durationAsDecimal(durationMs) + " " + indicator + " " +
+            burstLabel() + " " + hallBuf,
         colorForEventIndex(clickCount)};
 
     redrawScreen();
@@ -1122,13 +1793,40 @@ void handleSerialCommands() {
         SPIFFS.remove(LOG_PATH);
         SPIFFS.remove(SNIPPETS_PATH);
         clickCount = 0;
-        Serial.println("Log cleared (clicks.csv + snippets.bin).");
+        resetBurstCycle();
+        Serial.println("Log cleared (clicks.csv + snippets.bin); burst "
+                        "cycle numbering reset too.");
+    } else if (cmd.equalsIgnoreCase("CYCLESTART")) {
+        resetBurstCycle();
+        Serial.println("Burst cycle numbering reset - the next detected "
+                        "burst will be labeled as burst 0, opening. Run "
+                        "this once right before each repeated full test "
+                        "cycle (e.g. right before triggering a manual "
+                        "Program Run) so labels line up cycle to cycle.");
     } else if (cmd.equalsIgnoreCase("STATUS")) {
         Serial.printf("clicks logged (session): %lu\n",
                       (unsigned long)clickCount);
         Serial.printf("THRESH_ON=%d THRESH_OFF=%d\n", THRESH_ON, THRESH_OFF);
         Serial.printf("SPIFFS: used=%u total=%u\n",
                       (unsigned)SPIFFS.usedBytes(), (unsigned)SPIFFS.totalBytes());
+        if (tmagOk) {
+            if (tmagCalibrated) {
+                Serial.printf("TMAG: calibrated, %d class(es), "
+                              "no-correlation threshold=%.2fmT:\n",
+                              tmagNumClasses, sqrtf(tmagRejectThresholdSq));
+                for (int i = 0; i < tmagNumClasses; i++) {
+                    Serial.printf("  '%s': n=%d mean=(%.2f, %.2f, %.2f)\n",
+                                  tmagClassLabels[i].c_str(),
+                                  tmagClassCount[i], tmagClassMean[i][0],
+                                  tmagClassMean[i][1], tmagClassMean[i][2]);
+                }
+            } else if (tmagCalibrating) {
+                Serial.printf("TMAG: calibrating, %d event(s) remaining\n",
+                              tmagCalRemaining);
+            } else {
+                Serial.println("TMAG: not calibrated (run TMAGCAL)");
+            }
+        }
     } else if (cmd.startsWith("THRESH ")) {
         int v = cmd.substring(7).toInt();
         if (v > 0 && v < 32767) {
@@ -1167,14 +1865,67 @@ void handleSerialCommands() {
         Serial.println("Snippet capture OFF.");
     } else if (cmd.equalsIgnoreCase("HALLON")) {
         hallModeOn = true;
-        hallBaseline = hallRead();
-        Serial.printf("Hall-sensor capture ON (baseline=%.0f).\n", hallBaseline);
+        Serial.printf("Hall-sensor logging ON (external unit, current=%s).\n",
+                      digitalRead(PIN_HALL_DATA) == LOW ? "TRIGGERED" : "idle");
     } else if (cmd.equalsIgnoreCase("HALLOFF")) {
         hallModeOn = false;
-        Serial.println("Hall-sensor capture OFF.");
+        Serial.println("Hall-sensor logging OFF.");
+    } else if (cmd.equalsIgnoreCase("TMAGON")) {
+        if (!tmagOk) {
+            Serial.println("TMAG5273 not detected/configured - can't enable.");
+        } else {
+            tmagModeOn = true;
+            float x, y, z;
+            if (tmagReadXYZ(x, y, z)) {
+                Serial.printf("TMAG5273 logging ON (x=%.2f y=%.2f z=%.2f mT).\n",
+                              x, y, z);
+            } else {
+                Serial.println("TMAG5273 logging ON (read failed just now).");
+            }
+        }
+    } else if (cmd.equalsIgnoreCase("TMAGOFF")) {
+        tmagModeOn = false;
+        Serial.println("TMAG5273 logging OFF.");
+    } else if (cmd.equalsIgnoreCase("TMAGSTREAM")) {
+        if (!tmagOk) {
+            Serial.println("TMAG5273 not detected/configured - can't stream.");
+        } else {
+            tmagStreamOn = true;
+            drawTmagLiveScreenStatic();
+            Serial.println("TMAG5273 live stream ON (prints X/Y/Z every "
+                            "~150ms to Serial AND shows a live bar-graph "
+                            "view on the Stick's own screen - for "
+                            "untethered bench positioning).");
+        }
+    } else if (cmd.equalsIgnoreCase("TMAGSTREAMOFF")) {
+        tmagStreamOn = false;
+        redrawScreen();
+        Serial.println("TMAG5273 live stream OFF.");
+    } else if (cmd.startsWith("TMAGCAL")) {
+        if (!tmagOk) {
+            Serial.println("TMAG5273 not detected/configured - can't calibrate.");
+        } else {
+            int n = 8;  // default: ~2 full cycles' worth of events on a
+                         // 2-solenoid (master+station) rig; degenerates to
+                         // 8 single events (still 4 cycles) on a 1-valve rig
+            String arg = cmd.substring(7);
+            arg.trim();
+            if (arg.length() > 0) {
+                int v = arg.toInt();
+                if (v > 0) n = v;
+            }
+            startTmagCalibration(n);
+            Serial.printf("TMAG calibration started: capturing the next %d "
+                          "click event(s) (using burst-derived labels as "
+                          "ground truth - see burst_label in the log "
+                          "format) - make sure the valve(s) are cycling "
+                          "normally. Needs at least 2 distinct classes to "
+                          "succeed.\n", n);
+        }
     } else {
-        Serial.println("Commands: DUMP, CLEAR, STATUS, THRESH <n>, SERVE, STOP, "
-                        "PUSHNOW, SNIPON, SNIPOFF, HALLON, HALLOFF");
+        Serial.println("Commands: DUMP, CLEAR, CYCLESTART, STATUS, THRESH <n>, SERVE, STOP, "
+                        "PUSHNOW, SNIPON, SNIPOFF, HALLON, HALLOFF, TMAGON, "
+                        "TMAGOFF, TMAGSTREAM, TMAGSTREAMOFF, TMAGCAL <n>");
     }
 }
 
@@ -1193,6 +1944,20 @@ void setup() {
     Serial.begin(115200);
     delay(200);
 
+    pinMode(PIN_HALL_DATA, INPUT_PULLUP);
+
+    // Wire.begin() reconfigures GPIO32/33 for I2C regardless of the
+    // pinMode() call just above (see the TMAG5273 section's NOTE) - so this
+    // must run AFTER that call, not before, for the A3144E/TMAG5273 to
+    // peacefully coexist in firmware even though only one is ever
+    // physically plugged in at a time.
+    Wire.begin(32, 33);
+    tmagOk = tmagInit();
+    Serial.println(tmagOk
+                        ? "TMAG5273 detected and configured."
+                        : "[WARN] TMAG5273 not detected/configured - "
+                          "TMAGON/TMAGSTREAM will no-op.");
+
     if (!SPIFFS.begin(true)) {
         Serial.println("[WARN] SPIFFS mount failed");
     }
@@ -1206,12 +1971,9 @@ void setup() {
         Serial.println("[FAIL] I2S mic init failed");
         while (true) delay(1000);
     }
-
-    hallBaseline = hallRead();  // seed it instead of starting at 0
-
     redrawScreen();
 
-    Serial.println("ClickLogger ready. Commands: DUMP, CLEAR, STATUS, THRESH <n>");
+    Serial.println("ClickLogger ready. Commands: DUMP, CLEAR, CYCLESTART, STATUS, THRESH <n>");
 }
 
 void loop() {
@@ -1246,8 +2008,19 @@ void loop() {
         updateUsbGlyph();
     }
 
-    int chunkZC = 0;
-    int16_t peak = readMicChunk(&chunkZC);
+    if (tmagStreamOn && tmagOk &&
+        now - lastTmagStreamMs >= TMAG_STREAM_INTERVAL_MS) {
+        lastTmagStreamMs = now;
+        float x, y, z;
+        if (tmagReadXYZ(x, y, z)) {
+            Serial.printf("TMAG x=%.2f y=%.2f z=%.2f mT\n", x, y, z);
+            drawTmagAxisBar(0, 'X', x);
+            drawTmagAxisBar(1, 'Y', y);
+            drawTmagAxisBar(2, 'Z', z);
+        }
+    }
+
+    int16_t peak = readMicChunk();
 
     if (snippetModeOn) {
         if (!capturingSnippet) {
@@ -1264,37 +2037,58 @@ void loop() {
 
     switch (state) {
         case IDLE:
-            // Slow-moving low-pass, tracks ambient/baseline field level (not
-            // the brief actuation pulse) so we can measure deviation from it
-            // during the next event. Always sampled (not just when
-            // hallModeOn) since it also powers the finger-snap/noise
-            // rejection filter below, which is on by default.
-            hallBaseline = hallBaseline * 0.875f + hallRead() * 0.125f;
-
             if (now >= refractoryUntil && peak >= THRESH_ON) {
                 state = ACTIVE;
                 eventStartMs = now;
                 peakThisEvent = peak;
                 quietChunkCount = 0;
-                zcCountEvent = chunkZC;
                 M5.Rtc.GetTime(&eventStartTime);
                 M5.Rtc.GetDate(&eventStartDate);
 
-                uint32_t gapMs = (prevEventStartMs == 0)
-                                      ? 0xFFFFFFFF
-                                      : (now - prevEventStartMs);
+                currentEventGapMs = (prevEventStartMs == 0)
+                                        ? 0xFFFFFFFF
+                                        : (now - prevEventStartMs);
                 // Valve is normally-closed and opens briefly: the first
                 // click after a long gap is the START of a cycle (valve
                 // opening) = '1'; the second click ~20s later is the END
                 // (valve returning closed) = '0'.
                 currentTimingPrediction =
-                    (gapMs > TIMING_GAP_THRESHOLD_MS) ? '1' : '0';
+                    (currentEventGapMs > TIMING_GAP_THRESHOLD_MS) ? '1' : '0';
+
+                // Burst grouping (see comment above burstLabel()): a new
+                // burst starts whenever the gap since the previous event
+                // exceeds BURST_GAP_MS. Its type (open vs close) comes
+                // from strict alternation, not a time-threshold guess -
+                // see burstLabel()/resetBurstCycle() comments for why.
+                if (currentEventGapMs > BURST_GAP_MS) {
+                    if (burstSeqIndex >= 0) {
+                        // Not the very first burst since the last
+                        // CYCLESTART/CLEAR - flip from the previous
+                        // burst's type.
+                        currentBurstIsOpen = !currentBurstIsOpen;
+                    } else {
+                        // First burst of a fresh cycle always starts open
+                        // (a valve was closed; the cycle begins with
+                        // something opening).
+                        currentBurstIsOpen = true;
+                    }
+                    burstSeqIndex++;
+                    currentBurstPosition = 0;
+                } else {
+                    currentBurstPosition++;
+                }
+
                 prevEventStartMs = now;
 
-                {
-                    int h = hallRead();
-                    hallMinEvent = h;
-                    hallMaxEvent = h;
+                hallTriggeredEvent = (digitalRead(PIN_HALL_DATA) == LOW);
+
+                if (tmagOk) {
+                    float x, y, z;
+                    if (tmagReadXYZ(x, y, z)) {
+                        tmagXMin = tmagXMax = x;
+                        tmagYMin = tmagYMax = y;
+                        tmagZMin = tmagZMax = z;
+                    }
                 }
 
                 if (snippetModeOn) {
@@ -1313,12 +2107,19 @@ void loop() {
 
         case ACTIVE: {
             if (peak > peakThisEvent) peakThisEvent = peak;
-            zcCountEvent += chunkZC;
 
-            {
-                int h = hallRead();
-                if (h < hallMinEvent) hallMinEvent = h;
-                if (h > hallMaxEvent) hallMaxEvent = h;
+            if (digitalRead(PIN_HALL_DATA) == LOW) hallTriggeredEvent = true;
+
+            if (tmagOk) {
+                float x, y, z;
+                if (tmagReadXYZ(x, y, z)) {
+                    if (x < tmagXMin) tmagXMin = x;
+                    if (x > tmagXMax) tmagXMax = x;
+                    if (y < tmagYMin) tmagYMin = y;
+                    if (y > tmagYMax) tmagYMax = y;
+                    if (z < tmagZMin) tmagZMin = z;
+                    if (z > tmagZMax) tmagZMax = z;
+                }
             }
 
             if (peak < THRESH_OFF) {
@@ -1331,33 +2132,8 @@ void loop() {
 
             if (quietChunkCount >= RELEASE_CHUNKS || elapsed > MAX_CLICK_MS) {
                 if (elapsed >= MIN_CLICK_MS && elapsed <= MAX_CLICK_MS) {
-                    // Finger-snap/noise rejection: a real solenoid actuation
-                    // pulses current through a coil, producing a magnetic
-                    // field deviation the Hall sensor can pick up; a finger
-                    // snap (or voice, tap, etc.) doesn't, so it should sit
-                    // near the baseline. Reject events that don't show
-                    // enough Hall deviation to be a real actuation -
-                    // exactly the "smoke-test snap on power-up" case.
-                    int minDev = hallMinEvent - (int)hallBaseline;
-                    int maxDev = hallMaxEvent - (int)hallBaseline;
-                    int hallDevMag = max(abs(minDev), abs(maxDev));
-
-                    if (hallDevMag < HALL_ACTIVITY_THRESHOLD) {
-                        Serial.printf("Rejected (no Hall activity, likely "
-                                      "finger-snap/noise): dur=%lums "
-                                      "hall_dev=%d\n",
-                                      (unsigned long)elapsed, hallDevMag);
-                    } else {
-                    // zero-crossings/2 = number of full cycles; divide by
-                    // event duration in seconds to get an estimated
-                    // dominant frequency in Hz.
-                    float freqHz =
-                        (elapsed > 0)
-                            ? (zcCountEvent / 2.0f) * (1000.0f / elapsed)
-                            : 0.0f;
                     logClickEvent(eventStartDate, eventStartTime, elapsed,
-                                  peakThisEvent, freqHz);
-                    }
+                                  peakThisEvent);
                 }
                 capturingSnippet = false;
                 refractoryUntil = now + REFRACTORY_MS;
