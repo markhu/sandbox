@@ -3,9 +3,11 @@ WiFi Configuration
 Edit this file with your WiFi credentials before deploying
 """
 
+import os
+
 # WiFi credentials
 WIFI_SSID = "orcYard"
-WIFI_PASSWORD = "Rainbird-1"
+WIFI_PASSWORD = os.environ.get("WIFI_PASSWORD")  # print(f"WIFI... {WIFI_PASSWORD}")
 
 # WebREPL password (change this!)
 WEBREPL_PASSWORD = "python3"
