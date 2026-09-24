@@ -80,7 +80,7 @@ void drawScreen(const std::vector<Network> &nets, const String &macTail,
   lcd.startWrite();
   lcd.fillScreen(TFT_BLACK);
   lcd.setTextColor(TFT_WHITE, TFT_BLACK);
-  lcd.setTextSize(1);
+  lcd.setTextSize(1.5);
   lcd.setCursor(0, 0);
 
   lcd.println("== WiFi Scan (Top 5) ==");
@@ -158,7 +158,7 @@ void setup() {
 
   M5.Display.setBrightness(255);
   M5.Display.setRotation(2);  // native portrait (135x240), right-side up
-  M5.Display.setTextSize(1);
+  M5.Display.setTextSize(1.5);
   M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setCursor(0, 0);
   M5.Display.println("Booting...");
