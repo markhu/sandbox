@@ -80,24 +80,27 @@ void drawScreen(const std::vector<Network> &nets, const String &macTail,
   auto &lcd = M5.Display;
   lcd.startWrite();
   lcd.fillScreen(TFT_BLACK);
-  lcd.setTextColor(TFT_WHITE, TFT_BLACK);
   lcd.setTextSize(1.5);
   lcd.setCursor(0, 0);
 
-  lcd.println("== WiFi Scan (Top 4) ==");
+  lcd.setTextColor(TFT_YELLOW, TFT_BLACK);
+  lcd.println("Wi-Fi (top " + String(kTopN) + ")");
   lcd.println();
 
   if (nets.empty()) {
+    lcd.setTextColor(TFT_RED, TFT_BLACK);
     lcd.println("No networks found");
   } else {
     for (size_t i = 0; i < nets.size(); ++i) {
+      lcd.setTextColor(TFT_GREEN, TFT_BLACK);
       lcd.printf("%d. %s\n", static_cast<int>(i + 1), nets[i].ssid.c_str());
       lcd.printf("   %d dBm\n", nets[i].rssi);
     }
   }
 
   lcd.println();
-  lcd.printf("MAC: ..%s\n", macTail.c_str());
+  lcd.setTextColor(TFT_LIGHTBLUE, TFT_BLACK);
+  lcd.printf("MAC: ...%s\n", macTail.c_str());
   lcd.println(revInfo);
 
   lcd.endWrite();
@@ -159,14 +162,14 @@ void setup() {
 
   M5.Display.setBrightness(255);
   M5.Display.setRotation(2);  // native portrait (135x240), right-side up
-  M5.Display.setTextSize(1.5);
+  M5.Display.setTextSize(2);
   M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setCursor(0, 0);
-  M5.Display.println("Booting...");
+  M5.Display.println("[Booting]");
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  delay(100);
+  delay(1000);
 }
 
 void loop() {
@@ -174,10 +177,26 @@ void loop() {
 
   String macTail = macLast6();
   String revInfo = buildRevInfo();
+  std::vector<uint16_t> color_choices = {TFT_WHITE, TFT_RED, TFT_GREEN, TFT_BLUE, TFT_YELLOW};
+  std::vector<uint16_t> alternate_colors = {TFT_CYAN, TFT_MAGENTA, TFT_ORANGE, TFT_PURPLE, TFT_BROWN};
+  std::vector<uint16_t> all_colors;
+  all_colors.insert(all_colors.end(), color_choices.begin(), color_choices.end());
+  all_colors.insert(all_colors.end(), alternate_colors.begin(), alternate_colors.end());
 
   M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setCursor(0, 0);
-  M5.Display.println("Scanning Wi-Fi...");
+  M5.Display.setTextSize(1.5);
+
+  M5.Display.setTextColor(all_colors[0], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[1], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[2], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[3], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[4], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[5], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[6], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[7], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[8], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
+  M5.Display.setTextColor(all_colors[9], TFT_BLACK);  M5.Display.println("Wi-Fi scan...");
 
   std::vector<Network> top = scanTopNetworks(kTopN);
 
