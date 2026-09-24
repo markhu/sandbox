@@ -2,7 +2,8 @@
 //
 // - Scans nearby Wi-Fi networks
 // - Displays on the built-in LCD:
-//     * Top 5 SSIDs (sorted by RSSI, strongest first)
+//     * Top 4 visible SSIDs (sorted by RSSI, strongest first; hidden/blank
+//       SSIDs are excluded)
 //     * Last 6 hex characters of the device's Wi-Fi station MAC address
 //     * Board/firmware revision info reported by M5Unified
 // - Re-scans every 30 seconds in a loop.
@@ -26,7 +27,7 @@
 namespace {
 
 constexpr uint32_t kScanIntervalMs = 30000;
-constexpr int kTopN = 5;
+constexpr int kTopN = 4;
 constexpr int kMaxBeginAttempts = 3;
 constexpr uint32_t kBeginRetryDelayMs = 250;
 constexpr uint8_t kI2C_SDA = 47;
@@ -48,7 +49,7 @@ String macLast6() {
 std::vector<Network> scanTopNetworks(int topN) {
   std::vector<Network> nets;
 
-  int count = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/true);
+  int count = WiFi.scanNetworks(/*async=*/false, /*show_hidden=*/false);
   if (count <= 0) {
     return nets;
   }
@@ -57,7 +58,7 @@ std::vector<Network> scanTopNetworks(int topN) {
   for (int i = 0; i < count; ++i) {
     String ssid = WiFi.SSID(i);
     if (ssid.isEmpty()) {
-      ssid = "<hidden>";
+      continue;  // skip hidden/blank SSIDs
     }
     nets.push_back({ssid, WiFi.RSSI(i)});
   }
@@ -83,7 +84,7 @@ void drawScreen(const std::vector<Network> &nets, const String &macTail,
   lcd.setTextSize(1.5);
   lcd.setCursor(0, 0);
 
-  lcd.println("== WiFi Scan (Top 5) ==");
+  lcd.println("== WiFi Scan (Top 4) ==");
   lcd.println();
 
   if (nets.empty()) {
