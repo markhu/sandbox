@@ -1,0 +1,97 @@
+[
+  {
+    "timestamp": "2026-06-03T02:47:01.246479+00:00",
+    "machine": "mac-studio-m2",
+    "model": "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
+    "prompt": "Write a Python function that checks if a number is prime, with a docstring and type hints.",
+    "max_tokens": 256,
+    "seed": 42,
+    "temperature": 0.0,
+    "warmup_runs": 1,
+    "measured_runs": 10,
+    "runs": [
+      {
+        "ttft_s": 0.1263,
+        "total_s": 2.6671,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.62,
+        "decode_toks_per_s": 40.54
+      },
+      {
+        "ttft_s": 0.1237,
+        "total_s": 2.6645,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.66,
+        "decode_toks_per_s": 40.54
+      },
+      {
+        "ttft_s": 0.1234,
+        "total_s": 2.6665,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.63,
+        "decode_toks_per_s": 40.5
+      },
+      {
+        "ttft_s": 0.123,
+        "total_s": 2.6659,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.64,
+        "decode_toks_per_s": 40.51
+      },
+      {
+        "ttft_s": 0.125,
+        "total_s": 2.665,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.65,
+        "decode_toks_per_s": 40.55
+      },
+      {
+        "ttft_s": 0.1127,
+        "total_s": 2.6615,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.7,
+        "decode_toks_per_s": 40.41
+      },
+      {
+        "ttft_s": 0.123,
+        "total_s": 2.6692,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.59,
+        "decode_toks_per_s": 40.45
+      },
+      {
+        "ttft_s": 0.1237,
+        "total_s": 2.6672,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.62,
+        "decode_toks_per_s": 40.5
+      },
+      {
+        "ttft_s": 0.1149,
+        "total_s": 2.66,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 38.72,
+        "decode_toks_per_s": 40.47
+      },
+      {
+        "ttft_s": 0.1185,
+        "total_s": 2.7166,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 37.92,
+        "decode_toks_per_s": 39.64
+      }
+    ],
+    "summary": {
+      "ttft_mean_s": 0.1214,
+      "ttft_std_s": 0.0045,
+      "total_mean_s": 2.6704,
+      "total_std_s": 0.0165,
+      "completion_tokens_mean": 103,
+      "completion_tokens_std": 0.0,
+      "e2e_toks_per_s_mean": 38.575,
+      "e2e_toks_per_s_std": 0.2333,
+      "decode_toks_per_s_mean": 40.411,
+      "decode_toks_per_s_std": 0.2744
+    }
+  }
+]

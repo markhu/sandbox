@@ -1,0 +1,62 @@
+[
+  {
+    "timestamp": "2026-06-03T03:50:34.747770+00:00",
+    "machine": "macbook-pro-m3",
+    "model": "mlx-community/Qwen2.5-Coder-14B-Instruct-4bit",
+    "prompt": "Write a Python function that checks if a number is prime, with a docstring and type hints.",
+    "max_tokens": 256,
+    "seed": 42,
+    "temperature": 0.0,
+    "warmup_runs": 1,
+    "measured_runs": 5,
+    "runs": [
+      {
+        "ttft_s": 0.2449,
+        "total_s": 2.7168,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 37.91,
+        "decode_toks_per_s": 41.67
+      },
+      {
+        "ttft_s": 0.1132,
+        "total_s": 2.594,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 39.71,
+        "decode_toks_per_s": 41.52
+      },
+      {
+        "ttft_s": 0.1104,
+        "total_s": 2.5808,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 39.91,
+        "decode_toks_per_s": 41.69
+      },
+      {
+        "ttft_s": 0.11,
+        "total_s": 2.5556,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 40.3,
+        "decode_toks_per_s": 42.12
+      },
+      {
+        "ttft_s": 0.1112,
+        "total_s": 2.5775,
+        "completion_tokens": 103,
+        "e2e_toks_per_s": 39.96,
+        "decode_toks_per_s": 41.76
+      }
+    ],
+    "summary": {
+      "ttft_mean_s": 0.1379,
+      "ttft_std_s": 0.0598,
+      "total_mean_s": 2.6049,
+      "total_std_s": 0.064,
+      "completion_tokens_mean": 103,
+      "completion_tokens_std": 0.0,
+      "e2e_toks_per_s_mean": 39.558,
+      "e2e_toks_per_s_std": 0.9454,
+      "decode_toks_per_s_mean": 41.752,
+      "decode_toks_per_s_std": 0.2235
+    }
+  }
+]

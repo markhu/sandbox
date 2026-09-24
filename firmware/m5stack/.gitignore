@@ -1,0 +1,3 @@
+.pio/
+**/secrets.h
+harness_data/

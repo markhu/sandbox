@@ -34,3 +34,7 @@ pip-log.txt
 
 # Mac OSX Finder metadata
 *.DS_Store
+
+# Pre-built firmware files and libraries
+firmware/rp2350_files/
+

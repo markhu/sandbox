@@ -1,0 +1,8 @@
+# RP2350 Project Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Serial communication (required)
+pyserial>=3.5
+
+# USB device enumeration (optional, for detailed device info)
+pyusb>=1.2.1
