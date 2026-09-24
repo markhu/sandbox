@@ -5,7 +5,7 @@
 //     * Top 5 SSIDs (sorted by RSSI, strongest first)
 //     * Last 6 hex characters of the device's Wi-Fi station MAC address
 //     * Board/firmware revision info reported by M5Unified
-// - Re-scans every few seconds in a loop.
+// - Re-scans every 30 seconds in a loop.
 //
 // Bring-up note (see BRINGUP_NOTES.md for the full investigation): the LCD
 // panel on the StickS3 is only created by M5Unified's board autodetect
@@ -25,7 +25,7 @@
 
 namespace {
 
-constexpr uint32_t kScanIntervalMs = 8000;
+constexpr uint32_t kScanIntervalMs = 30000;
 constexpr int kTopN = 5;
 constexpr int kMaxBeginAttempts = 3;
 constexpr uint32_t kBeginRetryDelayMs = 250;
@@ -157,7 +157,7 @@ void setup() {
   beginWithRetry();
 
   M5.Display.setBrightness(255);
-  M5.Display.setRotation(1);
+  M5.Display.setRotation(2);  // native portrait (135x240), right-side up
   M5.Display.setTextSize(1);
   M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setCursor(0, 0);
